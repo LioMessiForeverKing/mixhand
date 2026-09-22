@@ -77,8 +77,7 @@ class LogicPro:
         except BrokenPipeError as e:
             raise ExecutorError("LogicProMCP is not running") from e
 
-    def _readline(self, method: str) -> bytes:
-        deadline = time.monotonic() + RESPONSE_WITHIN_S
+    def _readline(self, method: str, deadline: float) -> bytes:
         while b"\n" not in self._buffer:
             remaining = deadline - time.monotonic()
             if remaining <= 0 or not select.select([self._proc.stdout], [], [], remaining)[0]:
@@ -93,9 +92,10 @@ class LogicPro:
     def _request(self, method: str, params: dict) -> dict:
         self._last_id += 1
         self._send({"jsonrpc": "2.0", "id": self._last_id, "method": method, "params": params})
+        deadline = time.monotonic() + RESPONSE_WITHIN_S
         while True:
             try:
-                reply = json.loads(self._readline(method))
+                reply = json.loads(self._readline(method, deadline))
             except ValueError as e:
                 raise ExecutorError(f"LogicProMCP sent a line that is not JSON during {method}") from e
             if reply.get("id") != self._last_id:

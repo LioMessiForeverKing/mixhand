@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import time
 
 scenario = json.loads(open(os.environ["FAKE_SCENARIO"]).read())
 calls_path = os.environ["FAKE_CALLS"]
@@ -32,6 +33,9 @@ for line in sys.stdin:
         continue
     method, params = message["method"], message.get("params", {})
     if method in scenario.get("silent_on", []):
+        for _ in range(scenario.get("chatter", 0)):
+            print(json.dumps({"jsonrpc": "2.0", "method": "notifications/message", "params": {}}), flush=True)
+            time.sleep(0.1)
         continue
     if method == "initialize" and scenario.get("refuse_initialize"):
         print(json.dumps({"jsonrpc": "2.0", "id": message["id"], "error": {"message": "no"}}), flush=True)
