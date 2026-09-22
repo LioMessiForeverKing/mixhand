@@ -31,14 +31,20 @@ class Fake:
         self.scenario = root / "scenario.json"
         self.calls_path = root / "calls.jsonl"
         self.log_path = root / "logs" / "actions.jsonl"
+        self.pid_path = root / "pid"
         self.binary.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{FAKE}" "$@"\n')
         self.binary.chmod(0o755)
 
-    def serve(self, resources=None, tools=None, version="3.16.0", doctor=None):
+    def serve(self, resources=None, tools=None, version="3.16.0", doctor=None, **behaviour):
         resources = {"logic://project/info": [{"data": {"filePath": PROJECT}}], **(resources or {})}
         self.scenario.write_text(
-            json.dumps({"resources": resources, "tools": tools or {}, "version": version, "doctor": doctor or {}})
+            json.dumps(
+                {"resources": resources, "tools": tools or {}, "version": version, "doctor": doctor or {}, **behaviour}
+            )
         )
+
+    def pid(self):
+        return int(self.pid_path.read_text())
 
     def calls(self):
         if not self.calls_path.exists():
@@ -55,6 +61,7 @@ def fake(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("FAKE_SCENARIO", str(f.scenario))
     monkeypatch.setenv("FAKE_CALLS", str(f.calls_path))
+    monkeypatch.setenv("FAKE_PID", str(f.pid_path))
     monkeypatch.setenv("MIXHAND_LOGICPROMCP", str(f.binary))
     monkeypatch.setenv("MIXHAND_PROJECT", PROJECT)
     monkeypatch.setattr("mixhand.executor.logicpro.POLL_S", 0.01)

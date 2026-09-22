@@ -58,3 +58,16 @@ def test_another_logicpromcp_version_fails(fake, logic_installed):
 def test_another_project_in_front_fails(fake, logic_installed):
     fake.serve(doctor=ALL_PASS, resources={"logic://project/info": [{"data": {"filePath": "/elsewhere.logicx"}}]})
     assert statuses(doctor.run())["Front project"] == "fail"
+
+
+def test_no_project_open_is_reported_not_crashed_on(fake, logic_installed):
+    fake.serve(doctor=ALL_PASS, resources={"logic://project/info": [{"data": None}]})
+    assert statuses(doctor.run())["Front project"] == "unknown"
+
+
+def test_a_logicpromcp_that_stops_answering_leaves_front_project_unknown(fake, logic_installed, monkeypatch):
+    monkeypatch.setattr("mixhand.executor.logicpro.RESPONSE_WITHIN_S", 2.0)
+    fake.serve(doctor=ALL_PASS, silent_on=["resources/read"])
+    front = next(c for c in doctor.run() if c.name == "Front project")
+    assert front.status == "unknown"
+    assert "did not answer resources/read" in front.detail

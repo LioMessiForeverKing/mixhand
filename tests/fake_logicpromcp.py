@@ -23,11 +23,19 @@ if sys.argv[1:] == ["doctor", "--json"]:
     print(json.dumps(scenario["doctor"]))
     sys.exit(1)
 
+with open(os.environ["FAKE_PID"], "w") as f:
+    f.write(str(os.getpid()))
+
 for line in sys.stdin:
     message = json.loads(line)
     if "id" not in message:
         continue
     method, params = message["method"], message.get("params", {})
+    if method in scenario.get("silent_on", []):
+        continue
+    if method == "initialize" and scenario.get("refuse_initialize"):
+        print(json.dumps({"jsonrpc": "2.0", "id": message["id"], "error": {"message": "no"}}), flush=True)
+        continue
     if method == "initialize":
         result = {"protocolVersion": "2025-06-18", "capabilities": {}}
     elif method == "resources/read":
