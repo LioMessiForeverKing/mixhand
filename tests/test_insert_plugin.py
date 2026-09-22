@@ -60,12 +60,22 @@ def test_a_missing_track_names_what_logic_has(fake):
         insert_plugin(logic, "Lead Vocal", "Channel EQ")
 
 
-def test_an_unconfirmed_insert_raises_and_logs_it_unverified(fake):
+@pytest.mark.parametrize(
+    "reply",
+    [
+        {"state": "B", "verified": False, "reason": "readback_unavailable"},
+        {**CHANNEL_EQ_ON_SLOT_1, "observed_slot": 0, "verified": False},
+        {**CHANNEL_EQ_ON_SLOT_1, "observed_slot": 0, "observed_plugin_name": "Compressor"},
+        CHANNEL_EQ_ON_SLOT_1,
+    ],
+    ids=["state-b", "state-a-unverified", "state-a-wrong-plugin", "state-a-wrong-slot"],
+)
+def test_an_unconfirmed_insert_raises_and_logs_it_unverified(fake, reply):
     fake.serve(
         resources={"logic://tracks": [tracks("Lead Vocal")]},
         tools={
             "logic_plugins.get_inventory": [inventory(slot(0))],
-            "logic_plugins.insert_verified": [{"state": "B", "verified": False, "reason": "readback_unavailable"}],
+            "logic_plugins.insert_verified": [reply],
         },
     )
     with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="not confirmed"):
