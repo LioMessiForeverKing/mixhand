@@ -328,7 +328,7 @@ def create_aux(logic: LogicPro, name: str, plugin: str) -> ActionResult:
     try:
         click_mixer_menu(*AUX_TRACK_MENU)
     except ExecutorError as e:
-        raise ExecutorError(f"{e}; the new aux strip has no track, and undo 1 removes it") from e
+        raise ExecutorError(f"{e}; check the Mixer: undo 1 if the new aux strip has no track, undo 2 if it has one") from e
     index, ref, current = _new_aux(logic, before)
     selected = logic.call("logic_tracks", "select", index=index, target_ref=ref)
     if not (selected.get("state") == "A" and selected.get("verified") is True):
@@ -336,17 +336,23 @@ def create_aux(logic: LogicPro, name: str, plugin: str) -> ActionResult:
             f"selecting the new aux was not confirmed (state {selected.get('state')}: {selected.get('reason')}); "
             "undo 2 removes it"
         )
-    _rename_aux(logic, index, ref, current, name)
+    steps = 2
+    if current != name:
+        _rename_aux(logic, index, ref, current, name)
+        steps = 3
     try:
         inserted = insert_plugin(logic, name, plugin)
     except ExecutorError as e:
-        raise ExecutorError(f"{e}; aux {name} exists without {plugin}, so run again to retry, or undo 3 to remove it") from e
+        raise ExecutorError(
+            f"{e}; aux {name} exists, and {plugin} may or may not be on it: check Logic, then run again "
+            f"to finish, or undo {steps} to remove it without the plugin, {steps + 1} with it"
+        ) from e
     log("create_aux.done", name=name, plugin=plugin, position=index + 1, verified=inserted.verified)
-    return ActionResult(ok=True, detail=f"Created aux {name} with {plugin}; undo 4 removes it", verified=inserted.verified)
+    return ActionResult(ok=True, detail=f"Created aux {name} with {plugin}; undo {steps + 1} removes it", verified=inserted.verified)
 
 
 def _new_aux(logic: LogicPro, before: list[dict]) -> tuple[int, str, str]:
-    refs = [t["track_ref"] for t in before]
+    refs = [t.get("track_ref") for t in before]
     deadline = time.monotonic() + SETTLES_WITHIN_S
     while True:
         after = logic.tracks()
@@ -362,6 +368,8 @@ def _new_aux(logic: LogicPro, before: list[dict]) -> tuple[int, str, str]:
             f"creating the aux left {[t['name'] for t in after]}, not one new aux track; check Logic before undoing"
         )
     new = after[added[0]]
+    if not new.get("track_ref"):
+        raise ExecutorError("Logic gave no track_ref for the new aux, so it could not be bound; check Logic before undoing")
     return added[0], new["track_ref"], new["name"]
 
 

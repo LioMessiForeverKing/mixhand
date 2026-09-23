@@ -145,8 +145,14 @@ on run {menuName, itemName}
             if exists menu 1 of opener then exit repeat
         end repeat
         if not (exists menu 1 of opener) then error "the Mixer's " & menuName & " menu did not open"
-        set choice to menu item itemName of menu 1 of opener
-        if not (enabled of choice) then
+        try
+            set choice to menu item itemName of menu 1 of opener
+            set usable to enabled of choice
+        on error failure
+            perform action "AXCancel" of menu 1 of opener
+            error failure
+        end try
+        if not usable then
             perform action "AXCancel" of menu 1 of opener
             error menuName & " > " & itemName & " is disabled in the Mixer"
         end if

@@ -132,7 +132,7 @@ def test_a_strip_that_could_not_be_given_a_track_says_how_to_remove_it(fake, nam
 
     monkeypatch.setattr("mixhand.executor.primitives.click_mixer_menu", disabled)
     serve(fake, [[VOCAL]])
-    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="has no track, and undo 1 removes it"):
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="undo 1 if the new aux strip has no track, undo 2 if it has one"):
         create_aux(logic, "Verb", "Channel EQ")
 
     assert names == []
@@ -189,5 +189,25 @@ def test_a_rename_that_lands_elsewhere_says_how_to_get_back(fake, renamed):
 def test_a_failed_insert_leaves_a_named_aux_and_says_a_rerun_finishes_it(fake):
     refused = {"state": "C", "error": "slot_popup_menu_not_found", "safe_to_retry": False}
     serve(fake, [[VOCAL], [VOCAL, NEW], [VOCAL, NEW], [VOCAL, NAMED]], insert=refused)
-    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="exists without Channel EQ, so run again to retry, or undo 3"):
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="may or may not be on it.*undo 3 to remove it without the plugin, 4 with it"):
         create_aux(logic, "Verb", "Channel EQ")
+
+
+def test_an_aux_asked_for_by_the_name_logic_gives_it_is_not_renamed(fake, names):
+    serve(fake, [[VOCAL], [VOCAL, NEW]])
+    with LogicPro.from_env() as logic:
+        result = create_aux(logic, "Aux 1", "Channel EQ")
+
+    assert result.verified
+    assert result.detail == "Created aux Aux 1 with Channel EQ; undo 3 removes it"
+    assert names == []
+    insert = sent(fake, "logic_plugins.insert_verified")
+    assert [(i["track"], i["expected_name"]) for i in insert] == [(1, "Aux 1")]
+
+
+def test_a_new_aux_without_a_track_ref_is_not_selected(fake, names):
+    serve(fake, [[VOCAL], [VOCAL, ("Aux 1", None, "aux")]])
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="no track_ref for the new aux"):
+        create_aux(logic, "Verb", "Channel EQ")
+
+    assert sent(fake, "logic_tracks.select") == [] and names == []

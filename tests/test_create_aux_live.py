@@ -72,6 +72,7 @@ def test_create_an_aux_with_channel_eq_then_undo_it(run, no_aux_left):
         undone = []
         for _ in range(4):
             undone.append(osascript(UNDO_ITEM))
+            assert undone[-1] != before[1], f"only {len(undone) - 1} undo steps were the test's own: {undone}"
             undo(logic, 1)
     assert undone[-1] == "Undo Create New Auxiliary Channel Strip", undone
     assert session() == before
