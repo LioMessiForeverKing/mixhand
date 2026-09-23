@@ -63,12 +63,17 @@ MIXHAND_LIVE=1 uv run pytest -m live
 The live suite inserts Channel EQ on `Lead Vocal`, checks a second call adds nothing, undoes it,
 and checks the slot is empty again, ten times. It then sets `Lead Vocal`'s volume to ten levels
 and its pan to ten positions, checks a repeat call lands in the same place, and ends at 0 dB and
-roughly centre. Last, it duplicates `Lead Vocal` to `Lead Vocal Double` with its regions, checks a second
+roughly centre. Next, it duplicates `Lead Vocal` to `Lead Vocal Double` with its regions, checks a second
 call adds nothing, undoes both steps and checks the session is back where it started, ten times.
 It then duplicates `Lead Vocal Double` again, deletes it, undoes the delete, deletes it once more and
 checks a second delete is refused, ten times. Either test deletes a leftover `Lead Vocal Double` if
 it fails partway.
-`Lead Vocal` needs at least one region for that part. Keep your hands off Logic while it runs.
+`Lead Vocal` needs at least one region for that part.
+Last, it creates `Mixhand Aux` with Channel EQ, checks a second call adds nothing, then undoes it
+one step at a time and checks the fourth undo is *Create New Auxiliary Channel Strip* and the
+session and Edit menu are back where they started, ten times. If it fails partway it says so rather
+than guessing how many undos to send.
+Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate -d`).
 
 ## SPEC §12, answered
 
@@ -78,6 +83,7 @@ it fails partway.
 | Which AX element exposes empty Audio FX and Send slots? | Empty inserts: LogicProMCP's `get_inventory` reports them (`read_status: empty`). Empty sends: LogicProMCP says an empty send slot exposes no `AXValue`, `AXValueDescription` or `AXTitle`. Primitive 5 has to find another way (milestone 2). |
 | Can the cycle range be read via AX? | Only whether cycle is on. `logic://transport/state` has `isCycleEnabled` but no start or end bar. Plan on `--start-bar/--end-bar` (milestone 3). |
 | Does `Cmd+D` create a duplicate track without regions? | **Yes**, and primitive 1 doesn't use it. `Cmd+D` is Track › Other › New Track With Duplicate Settings: an empty track under the source, with the source's name. The item beside it, **New Track With Duplicate Settings and Content**, copies the regions too, so `duplicate_track` clicks that one and needs no copy and paste. LogicProMCP 3.16.0 can't call it, so Mixhand clicks it through System Events after LogicProMCP has selected the source and confirmed the selection. The menu names are English; another Logic language needs them re-read. |
+| Can LogicProMCP create an aux? | **No.** 3.16.0 creates audio, instrument, drummer and external MIDI tracks only, and has no send write either. `create_aux` clicks the Mixer's own Options menu: *Create New Auxiliary Channel Strip*, then *Create Tracks for Selected Channel Strips*. An aux without a track never appears in `logic://tracks`, so it gets one; LogicProMCP then lists it with `type: aux` and a `track_ref`, and `insert_plugin` reaches it. Creating it takes four undo steps: the strip, its track, the rename and the plugin. 10 of 10 live runs passed. |
 | Does Mackie Control over IAC move faders without focus issues? | Not needed for primitive 3. LogicProMCP's `logic_mixer.set_volume` and `set_pan` move the strip by AX increments and read it back, 20 of 20 live runs, without Logic in front. Logic moves by 10 raw units per increment, so pan lands within ±5 and volume within 0.5 dB from −5 dB up and 1.1 dB down to −17 dB. Below −17 dB one increment is 2.5 to 25 dB, so `set_volume` refuses it rather than land far from the request; this narrows SPEC's −60 dB floor on purpose. Mixhand reports where it actually landed. Mackie is untested. |
 
 ## Known issues
@@ -99,6 +105,19 @@ it fails partway.
 - The Inspector renames whichever track is selected. If you click another track in the tenth of a
   second between Mixhand's selection check and its write, that track is renamed instead. Mixhand
   then reports the mismatch and says to check Logic before undoing.
+
+- `create_aux` needs exactly one Mixer showing: the pane in the Tracks window (`X`) or the Mixer
+  window, not both. It refuses before touching anything otherwise. The Mixer's Edit, Options and
+  View menus are buttons inside it, not menu-bar items, and their names are English.
+- Straight after a strip is created, Logic drops a click on a Mixer menu button, and the menu never
+  opens. `create_aux` repeats the click until the menu shows, up to ten times; live, the second
+  click needed two. Close a Logic menu opened this way with AXCancel; System Events' Escape left
+  it open. Before the retry, a failed second click once left Logic not answering AppleScript until
+  it was restarted, and LogicProMCP then reports no front project. The cause was not pinned down.
+- An aux can carry only what LogicProMCP can insert: Gain, Channel EQ or Compressor. `create_aux`
+  refuses ChromaVerb, Stereo Delay and the rest before creating anything.
+- An aux strip left without a track, for example by a run killed between the two clicks, is invisible
+  to LogicProMCP, so `create_aux` cannot see it. Undo it, or delete the strip in the Mixer.
 
 - LogicProMCP speaks volume as a 0..1 contract, never dB. `mixhand/executor/fader.py` holds
   Logic's dB at each of the fader's 234 raw positions, read off the fader's AX value text on
