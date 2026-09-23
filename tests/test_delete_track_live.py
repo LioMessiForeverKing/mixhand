@@ -27,6 +27,9 @@ def session():
 
 @pytest.fixture
 def no_copy_left():
+    with LogicPro.from_env() as logic:
+        if COPY in [t["name"] for t in logic.tracks()]:
+            pytest.fail(f"delete {COPY!r} from the test project before running this")
     yield
     with LogicPro.from_env() as logic:
         if COPY in [t["name"] for t in logic.tracks()]:
@@ -36,7 +39,6 @@ def no_copy_left():
 @pytest.mark.parametrize("run", range(10))
 def test_delete_a_duplicate_and_undo_the_delete(run, no_copy_left):
     before, before_spans = session()
-    assert COPY not in before, f"delete {COPY!r} from the test project before running this"
 
     with LogicPro.from_env() as logic:
         duplicate_track(logic, SOURCE, COPY)

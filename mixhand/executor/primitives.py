@@ -197,16 +197,17 @@ def delete_track(logic: LogicPro, track: str) -> ActionResult:
             f"deleting {track!r} was not confirmed (state {result.get('state')}: {result.get('reason')}); "
             "check Logic before undoing"
         )
-    refs = [t.get("track_ref") for t in before]
+    # LogicProMCP reissues every track_ref after a delete, so the result is checked by name, unique above.
+    names = [t["name"] for t in before]
     deadline = time.monotonic() + SETTLES_WITHIN_S
     while True:
         after = logic.tracks()
-        if [t.get("track_ref") for t in after] != refs:
+        if [t["name"] for t in after] != names:
             break
         if time.monotonic() >= deadline:
             raise ExecutorError(f"Logic still shows {track!r} {SETTLES_WITHIN_S:g}s after deleting it; check Logic before undoing")
         time.sleep(POLL_S)
-    if [t.get("track_ref") for t in after] != refs[:index] + refs[index + 1 :]:
+    if [t["name"] for t in after] != names[:index] + names[index + 1 :]:
         raise ExecutorError(
             f"deleting {track!r} left {[t['name'] for t in after]}, not the session without it; check Logic before undoing"
         )

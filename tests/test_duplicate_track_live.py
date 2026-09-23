@@ -27,6 +27,9 @@ def session():
 
 @pytest.fixture
 def no_copy_left():
+    with LogicPro.from_env() as logic:
+        if COPY in [t["name"] for t in logic.tracks()]:
+            pytest.fail(f"delete {COPY!r} from the test project before running this")
     yield
     with LogicPro.from_env() as logic:
         if COPY in [t["name"] for t in logic.tracks()]:

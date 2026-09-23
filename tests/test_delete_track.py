@@ -18,6 +18,10 @@ def listing(*tracks):
     }
 
 
+def reissued(*tracks):
+    return [(name, f"{ref}_new") for name, ref in tracks]
+
+
 def serve(fake, sequence, delete=DELETED):
     fake.serve(
         resources={"logic://tracks": [listing(*step) for step in sequence]},
@@ -35,7 +39,7 @@ def sent(fake):
 
 
 def test_the_named_track_is_deleted_by_its_ref(fake):
-    serve(fake, [[LEAD, DOUBLE, BASS], [LEAD, DOUBLE, BASS], [LEAD, BASS]])
+    serve(fake, [[LEAD, DOUBLE, BASS], reissued(LEAD, DOUBLE, BASS), reissued(LEAD, BASS)])
     with LogicPro.from_env() as logic:
         result = delete_track(logic, "Lead Vocal Double")
 
@@ -84,13 +88,13 @@ def test_an_unconfirmed_delete_says_to_check_logic_rather_than_undo(fake):
 
 
 def test_a_track_that_never_disappears_says_so(fake):
-    serve(fake, [[LEAD, DOUBLE]])
+    serve(fake, [[LEAD, DOUBLE], reissued(LEAD, DOUBLE)])
     with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="still shows 'Lead Vocal Double'"):
         delete_track(logic, "Lead Vocal Double")
 
 
 def test_a_different_track_going_missing_is_not_reported_as_the_delete(fake):
-    serve(fake, [[LEAD, DOUBLE, BASS], [LEAD, DOUBLE]])
+    serve(fake, [[LEAD, DOUBLE, BASS], reissued(LEAD, DOUBLE)])
     with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="not the session without it"):
         delete_track(logic, "Lead Vocal Double")
 
