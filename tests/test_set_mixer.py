@@ -26,9 +26,10 @@ def sent(fake, command):
     [
         (0.0, 0.7578947368421053, 173, "Set Lead Vocal to +0.0 dB (asked +0.0 dB)"),
         (-9.0, 0.5, 98, "Set Lead Vocal to -9.0 dB (asked -9.0 dB)"),
+        (-17.0, None, 58, "Set Lead Vocal to -17.0 dB (asked -17.0 dB)"),
         (-3.2, None, 143, "Set Lead Vocal to -3.0 dB (asked -3.2 dB)"),
     ],
-    ids=["unity", "half-contract", "nearest-detent"],
+    ids=["unity", "half-contract", "floor", "nearest-detent"],
 )
 def test_volume_in_db_reaches_logicpromcp_as_its_fader_contract(fake, db, contract, landed_raw, detail):
     serve(fake, "set_volume", moved(landed_raw))
@@ -76,7 +77,7 @@ def test_pan_reports_where_it_landed_when_the_detent_grid_is_offset(fake):
 
 @pytest.mark.parametrize(
     ("move", "value"),
-    [(set_volume, -61.0), (set_volume, 6.5), (set_pan, -65), (set_pan, 64)],
+    [(set_volume, -17.1), (set_volume, 6.5), (set_pan, -65), (set_pan, 64)],
 )
 def test_an_out_of_range_value_touches_nothing(fake, move, value):
     serve(fake, "set_volume")

@@ -13,7 +13,7 @@ pytestmark = [
 ]
 
 TRACK = "Lead Vocal"
-VOLUMES = [-6.0, -3.2, -12.0, 2.0, -20.0, -0.5, -9.0, 4.5, -1.0, -30.0]
+VOLUMES = [-6.0, -3.2, -12.0, 2.0, -17.0, -0.5, -9.0, 4.5, -1.0, -14.5]
 PANS = [-40, 40, -64, 63, -17, 5, 0, -25, 33, -8]
 
 
@@ -48,7 +48,7 @@ def test_set_volume_on_lead_vocal(db):
         again = set_volume(logic, TRACK, db)
     assert first.verified and again.detail == first.detail
     raw = [f"{d:+.1f}" for d in DB_AT_RAW].index(landed(first.detail))
-    assert abs(DB_AT_RAW[raw] - db) <= 2.5
+    assert abs(DB_AT_RAW[raw] - db) <= 1.1
     assert strip()["volume"] == pytest.approx(volume_contract(raw), abs=1e-6)
 
 

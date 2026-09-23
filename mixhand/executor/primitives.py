@@ -4,7 +4,7 @@ from mixhand.executor.fader import DB_AT_RAW, PAN_CENTRE_RAW, pan_contract, raw_
 from mixhand.executor.logicpro import LogicPro
 
 INSERT_ATTEMPTS = 3
-VOLUME_DB_MIN = -60.0
+VOLUME_DB_MIN = -17.0
 VOLUME_DB_MAX = 6.0
 PAN_MIN = -64
 PAN_MAX = 63
