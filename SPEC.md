@@ -126,7 +126,7 @@ System prompt essentials (write in `planner/system_prompt.md`, keep it editable)
 Tool schema (`planner/tools.py`) — every tool has `reason: str` as a required field. Validation before execution (`planner/validate.py`):
 1. Referenced track exists in the current session (or was created earlier in this plan)
 2. Plugin is in `available_plugins`
-3. Numeric values within bounds (pan −64..63, volume −60..+6 dB, send −60..0 dB)
+3. Numeric values within bounds (pan −64..63, volume −17..+6 dB — Logic's fader is too coarse below −17 dB to land near a request, see `SETUP.md` — send −60..0 dB)
 4. No duplicate track names
 5. Reject and re-prompt the model with the validation error (max 2 retries), never execute an invalid action
 
