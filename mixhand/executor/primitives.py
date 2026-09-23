@@ -1,8 +1,16 @@
 from mixhand.executor import ActionResult, ExecutorError
 from mixhand.executor.actionlog import log
+from mixhand.executor.fader import DB_AT_RAW, PAN_CENTRE_RAW, pan_contract, raw_nearest, volume_contract
 from mixhand.executor.logicpro import LogicPro
 
 INSERT_ATTEMPTS = 3
+VOLUME_DB_MIN = -60.0
+VOLUME_DB_MAX = 6.0
+PAN_MIN = -64
+PAN_MAX = 63
+LANDS_WITHIN_RAW = 5
+# A target exactly between two detents makes LogicProMCP land on alternate sides on repeat calls.
+TIE_BREAK_RAW = 0.25
 
 
 def track_index(logic: LogicPro, track: str) -> int:
@@ -92,6 +100,58 @@ def _insert_once(logic: LogicPro, project: str, index: int, track: str, plugin: 
             f"(state {result.get('state')}: {result.get('reason') or result.get('error')})"
         )
     return ActionResult(ok=True, detail=f"Inserted {plugin} on {track} slot {slot}", verified=True)
+
+
+def set_volume(logic: LogicPro, track: str, db: float) -> ActionResult:
+    if not VOLUME_DB_MIN <= db <= VOLUME_DB_MAX:
+        raise ExecutorError(f"volume {db:g} dB is outside {VOLUME_DB_MIN:g}..{VOLUME_DB_MAX:g} dB")
+    logic.require_project()
+    index = track_index(logic, track)
+    target = raw_nearest(db)
+    raw = _move(logic, "set_volume", index, track, volume_contract(target + TIE_BREAK_RAW), target, requested=db)
+    return ActionResult(
+        ok=True, detail=f"Set {track} to {DB_AT_RAW[raw]:+.1f} dB (asked {db:+.1f} dB)", verified=True
+    )
+
+
+def set_pan(logic: LogicPro, track: str, value: int) -> ActionResult:
+    if not PAN_MIN <= value <= PAN_MAX:
+        raise ExecutorError(f"pan {value} is outside {PAN_MIN}..{PAN_MAX}")
+    logic.require_project()
+    index = track_index(logic, track)
+    raw = _move(logic, "set_pan", index, track, pan_contract(value + TIE_BREAK_RAW), value + PAN_CENTRE_RAW, requested=value)
+    return ActionResult(
+        ok=True, detail=f"Panned {track} to {raw - PAN_CENTRE_RAW} (asked {value})", verified=True
+    )
+
+
+def _move(logic: LogicPro, command: str, index: int, track: str, contract: float, target: int, requested: float) -> int:
+    log(f"{command}.start", track=track, requested=requested, target_raw=target)
+    try:
+        result = logic.call("logic_mixer", command, track=index, value=contract)
+    except ExecutorError as e:
+        log(f"{command}.refused", track=track, requested=requested, error=e.payload.get("error"))
+        raise
+    raw = result.get("observed_raw")
+    read_back = result.get("state") == "A" and result.get("verified") is True and isinstance(raw, (int, float))
+    landed = read_back and abs(raw - target) <= LANDS_WITHIN_RAW
+    log(
+        f"{command}.done",
+        track=track,
+        requested=requested,
+        target_raw=target,
+        observed_raw=raw,
+        verified=landed,
+        trace_id=result.get("trace_id"),
+    )
+    if not read_back:
+        raise ExecutorError(
+            f"{command} on {track!r} could not be read back "
+            f"(state {result.get('state')}: {result.get('reason') or result.get('error')})"
+        )
+    if not landed:
+        raise ExecutorError(f"{command} on {track!r} landed at raw {raw:g}, not within {LANDS_WITHIN_RAW} of {target}")
+    return round(raw)
 
 
 def undo(logic: LogicPro, n: int = 1) -> ActionResult:

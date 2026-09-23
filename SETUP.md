@@ -61,7 +61,9 @@ MIXHAND_LIVE=1 uv run pytest -m live
 ```
 
 The live suite inserts Channel EQ on `Lead Vocal`, checks a second call adds nothing, undoes it,
-and checks the slot is empty again, ten times. Keep your hands off Logic while it runs.
+and checks the slot is empty again, ten times. It then sets `Lead Vocal`'s volume to ten levels
+and its pan to ten positions, checks a repeat call lands in the same place, and ends at 0 dB and
+roughly centre. Keep your hands off Logic while it runs.
 
 ## SPEC §12, answered
 
@@ -71,9 +73,13 @@ and checks the slot is empty again, ten times. Keep your hands off Logic while i
 | Which AX element exposes empty Audio FX and Send slots? | Empty inserts: LogicProMCP's `get_inventory` reports them (`read_status: empty`). Empty sends: LogicProMCP says an empty send slot exposes no `AXValue`, `AXValueDescription` or `AXTitle`. Primitive 5 has to find another way (milestone 2). |
 | Can the cycle range be read via AX? | Only whether cycle is on. `logic://transport/state` has `isCycleEnabled` but no start or end bar. Plan on `--start-bar/--end-bar` (milestone 3). |
 | Does `Cmd+D` create a duplicate track without regions? | Not tested yet (primitive 1, milestone 2). |
-| Does Mackie Control over IAC move faders without focus issues? | Not tested yet (primitive 3, milestone 2). |
+| Does Mackie Control over IAC move faders without focus issues? | Not needed for primitive 3. LogicProMCP's `logic_mixer.set_volume` and `set_pan` move the strip by AX increments and read it back, 20 of 20 live runs, without Logic in front. Logic moves by 10 raw units per increment, so volume lands within 0.5 dB of the request from −12 dB up (coarser below) and pan within ±5. Mixhand reports where it actually landed. Mackie is untested. |
 
 ## Known issues
+
+- LogicProMCP speaks volume as a 0..1 contract, never dB. `mixhand/executor/fader.py` holds
+  Logic's dB at each of the fader's 234 raw positions, read off the fader's AX value text on
+  12.3.1, and mirrors LogicProMCP's contract curve. Re-measure both if either version changes.
 
 - A fresh LogicProMCP process reports a placeholder track list (`Track 1`) for the first second or
   two. Mixhand polls until the list reads live, and fails loudly after 10 s rather than

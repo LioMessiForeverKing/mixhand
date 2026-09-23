@@ -3,7 +3,7 @@ from conftest import inventory, slot, tracks
 
 from mixhand.executor import ExecutorError
 from mixhand.executor.logicpro import LogicPro
-from mixhand.executor.primitives import insert_plugin, undo
+from mixhand.executor.primitives import insert_plugin, set_pan, set_volume, undo
 
 CHANNEL_EQ_ON_SLOT_1 = {
     "state": "A",
@@ -91,6 +91,10 @@ def test_nothing_is_touched_when_another_project_is_in_front(fake):
             insert_plugin(logic, "Lead Vocal", "Channel EQ")
         with pytest.raises(ExecutorError, match="Real Song"):
             undo(logic)
+        with pytest.raises(ExecutorError, match="Real Song"):
+            set_volume(logic, "Lead Vocal", -3.0)
+        with pytest.raises(ExecutorError, match="Real Song"):
+            set_pan(logic, "Lead Vocal", -40)
 
     assert fake.calls() == []
 
