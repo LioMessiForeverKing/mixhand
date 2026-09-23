@@ -56,6 +56,8 @@ def no_aux_left():
 @pytest.mark.parametrize("run", range(10))
 def test_create_an_aux_with_channel_eq_then_undo_it(run, no_aux_left):
     before = session()
+    if before[1] == "Undo Create New Auxiliary Channel Strip":
+        pytest.fail("the project's last edit made an aux strip, so its undo steps could not be told apart; make any other edit first")
 
     with LogicPro.from_env() as logic:
         first = create_aux(logic, AUX, PLUGIN)
