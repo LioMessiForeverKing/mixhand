@@ -59,21 +59,23 @@ def test_a_track_is_duplicated_with_its_regions_and_renamed(fake, clicks):
     assert [e["event"] for e in fake.log()] == ["duplicate_track.start", "duplicate_track.done"]
 
 
-def test_a_second_call_finds_the_copy_and_makes_no_other(fake, clicks):
+@pytest.mark.parametrize("new_name", ["Lead Vocal Double", "Lead Vocal"], ids=["taken", "the-source"])
+def test_a_name_already_in_the_session_is_refused_before_anything_is_touched(fake, clicks, new_name):
     serve(fake, [[SOURCE, RENAMED]])
-    with LogicPro.from_env() as logic:
-        result = duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="already exists"):
+        duplicate_track(logic, "Lead Vocal", new_name)
 
-    assert result.verified and result.detail == "Lead Vocal Double already duplicates Lead Vocal"
     assert fake.calls() == [] and clicks == []
 
 
-def test_a_track_already_holding_the_new_name_that_is_not_a_copy_is_refused(fake, clicks):
-    serve(fake, [[SOURCE, RENAMED]], copy_regions=[region("Adlib", start="9 1 1 1")])
-    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="already exists and does not carry"):
+def test_a_click_that_failed_says_a_copy_may_exist(fake, monkeypatch):
+    def slow(*path):
+        raise ExecutorError("clicking Track > Other did not finish within 10s")
+
+    monkeypatch.setattr("mixhand.executor.primitives.click_menu", slow)
+    serve(fake, [[SOURCE]])
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="undo 1 if a copy was made"):
         duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
-
-    assert fake.calls() == [] and clicks == []
 
 
 def test_an_unconfirmed_selection_duplicates_nothing(fake, clicks):
@@ -117,7 +119,7 @@ def test_a_rename_that_lands_on_the_source_says_how_to_get_back(fake, clicks):
 
 def test_a_copy_that_moved_before_the_rename_is_not_renamed(fake, clicks):
     serve(fake, [[SOURCE], [SOURCE, COPY], [SOURCE, ("Lead Vocal", "trk_z")]])
-    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="moved before it could be renamed; undo 1"):
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="moved before it could be renamed; check Logic"):
         duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
 
     assert sent(fake, "rename") == []

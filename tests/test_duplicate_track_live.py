@@ -2,6 +2,7 @@ import os
 
 import pytest
 
+from mixhand.executor import ExecutorError
 from mixhand.executor.logicpro import LogicPro
 from mixhand.executor.primitives import duplicate_track, undo
 
@@ -32,8 +33,9 @@ def test_duplicate_lead_vocal_with_its_regions(run):
 
     with LogicPro.from_env() as logic:
         first = duplicate_track(logic, SOURCE, COPY)
-        again = duplicate_track(logic, SOURCE, COPY)
-    assert first.verified and again.detail == f"{COPY} already duplicates {SOURCE}"
+        with pytest.raises(ExecutorError, match="already exists"):
+            duplicate_track(logic, SOURCE, COPY)
+    assert first.verified
 
     names, spans = session()
     assert names == before[: source + 1] + [COPY] + before[source + 1 :]

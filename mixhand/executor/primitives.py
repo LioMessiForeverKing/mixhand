@@ -184,13 +184,9 @@ def duplicate_track(logic: LogicPro, source: str, new_name: str) -> ActionResult
     logic.require_project()
     before = logic.tracks()
     index, entry = _named(before, source)
-    spans = _spans(logic, index)
     if any(t["name"] == new_name for t in before):
-        existing, _ = _named(before, new_name)
-        if _spans(logic, existing) != spans:
-            raise ExecutorError(f"a track named {new_name!r} already exists and does not carry {source}'s regions")
-        log("duplicate_track.skipped", source=source, new_name=new_name)
-        return ActionResult(ok=True, detail=f"{new_name} already duplicates {source}", verified=True)
+        raise ExecutorError(f"a track named {new_name!r} already exists; Mixhand cannot tell whether it is a copy of {source!r}")
+    spans = _spans(logic, index)
     if not entry.get("track_ref"):
         raise ExecutorError(f"Logic gave no track_ref for {source!r}, so the duplicate could not be bound to it")
     log("duplicate_track.start", source=source, new_name=new_name, regions=len(spans))
@@ -199,7 +195,10 @@ def duplicate_track(logic: LogicPro, source: str, new_name: str) -> ActionResult
         raise ExecutorError(
             f"selecting {source!r} was not confirmed (state {selected.get('state')}: {selected.get('reason')})"
         )
-    click_menu(*DUPLICATE_MENU)
+    try:
+        click_menu(*DUPLICATE_MENU)
+    except ExecutorError as e:
+        raise ExecutorError(f"{e}; check Logic and undo 1 if a copy was made") from e
     copy_index, copy_ref = _new_track(logic, before, index, source)
     if _spans(logic, copy_index) != spans:
         raise ExecutorError(f"the copy of {source!r} does not carry its regions; undo 1 to remove it")
@@ -242,7 +241,7 @@ def _new_track(logic: LogicPro, before: list[dict], index: int, source: str) -> 
 def _rename_copy(logic: LogicPro, index: int, copy_ref: str, source: str, new_name: str) -> None:
     current = logic.tracks()
     if index >= len(current) or current[index].get("track_ref") != copy_ref:
-        raise ExecutorError(f"the copy of {source!r} moved before it could be renamed; undo 1 to remove it")
+        raise ExecutorError(f"the copy of {source!r} moved before it could be renamed; check Logic before undoing")
     # LogicProMCP refuses a target_ref rename while two tracks share a name, and reissues the renamed track's ref.
     renamed = logic.call("logic_tracks", "rename", index=index, name=new_name)
     if renamed.get("verified") is not True:
