@@ -18,7 +18,6 @@ def click_menu(*path: str) -> None:
     steps += [
         f"if not (enabled of {last}) then",
         ESCAPE,
-        ESCAPE,
         f'error "{" > ".join(path)} is disabled in Logic"',
         "end if",
         f"click {last}",
