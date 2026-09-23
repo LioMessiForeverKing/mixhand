@@ -2,7 +2,7 @@ import time
 
 from mixhand.executor import ActionResult, ExecutorError
 from mixhand.executor.actionlog import log
-from mixhand.executor.ax import click_menu
+from mixhand.executor.ax import click_menu, set_track_name
 from mixhand.executor.fader import DB_AT_RAW, PAN_CENTRE_RAW, pan_contract, raw_nearest, volume_contract
 from mixhand.executor.logicpro import POLL_S, LogicPro
 
@@ -277,10 +277,11 @@ def _rename_copy(logic: LogicPro, index: int, copy_ref: str, source: str, new_na
     current = logic.tracks()
     if index >= len(current) or current[index].get("track_ref") != copy_ref:
         raise ExecutorError(f"the copy of {source!r} moved before it could be renamed; check Logic before undoing")
-    # LogicProMCP refuses a target_ref rename while two tracks share a name, and reissues the renamed track's ref.
-    renamed = logic.call("logic_tracks", "rename", index=index, name=new_name)
-    if renamed.get("verified") is not True:
-        raise ExecutorError(f"renaming the copy of {source!r} to {new_name!r} was not confirmed; check Logic before undoing")
+    # LogicProMCP's rename falls back to typing, and keystrokes that miss the name field reach Logic as key commands.
+    try:
+        set_track_name(index + 1, source, new_name)
+    except ExecutorError as e:
+        raise ExecutorError(f"renaming the copy of {source!r} to {new_name!r} failed ({e}); check Logic before undoing") from e
     deadline = time.monotonic() + SETTLES_WITHIN_S
     while True:
         after = logic.tracks()

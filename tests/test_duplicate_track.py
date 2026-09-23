@@ -8,7 +8,6 @@ SOURCE = ("Lead Vocal", "trk_a")
 COPY = ("Lead Vocal", "trk_b")
 RENAMED = ("Lead Vocal Double", "trk_c")
 SELECTED = {"state": "A", "verified": True}
-RENAME_CONFIRMED = {"state": "A", "verified": True, "observed": "Lead Vocal Double"}
 
 
 def listing(*tracks):
@@ -23,14 +22,14 @@ def region(name, start="1 1 1 1", end="15 1 1 1"):
     return {"name": name, "startPosition": start, "endPosition": end}
 
 
-def serve(fake, sequence, copy_regions=None, select=SELECTED, rename=RENAME_CONFIRMED):
+def serve(fake, sequence, copy_regions=None, select=SELECTED):
     fake.serve(
         resources={
             "logic://tracks": [listing(*step) for step in sequence],
             "logic://tracks/0/regions": [[region("Lead Vocal #01")]],
             "logic://tracks/1/regions": [[region("Lead Vocal #01.1")] if copy_regions is None else copy_regions],
         },
-        tools={"logic_tracks.select": [select], "logic_tracks.rename": [rename]},
+        tools={"logic_tracks.select": [select]},
     )
 
 
@@ -42,11 +41,18 @@ def clicks(monkeypatch):
     return clicked
 
 
+@pytest.fixture(autouse=True)
+def names(monkeypatch):
+    named = []
+    monkeypatch.setattr("mixhand.executor.primitives.set_track_name", lambda *args: named.append(args))
+    return named
+
+
 def sent(fake, command):
     return [c["params"] for c in fake.calls() if c["call"] == f"logic_tracks.{command}"]
 
 
-def test_a_track_is_duplicated_with_its_regions_and_renamed(fake, clicks):
+def test_a_track_is_duplicated_with_its_regions_and_renamed(fake, clicks, names):
     serve(fake, [[SOURCE], [SOURCE], [SOURCE, COPY], [SOURCE, COPY], [SOURCE, COPY], [SOURCE, RENAMED]])
     with LogicPro.from_env() as logic:
         result = duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
@@ -55,7 +61,8 @@ def test_a_track_is_duplicated_with_its_regions_and_renamed(fake, clicks):
     assert result.detail == "Duplicated Lead Vocal to Lead Vocal Double with 1 region"
     assert sent(fake, "select") == [{"index": 0, "target_ref": "trk_a"}]
     assert clicks == [DUPLICATE_MENU]
-    assert sent(fake, "rename") == [{"index": 1, "name": "Lead Vocal Double"}]
+    assert names == [(2, "Lead Vocal", "Lead Vocal Double")]
+    assert [c["call"] for c in fake.calls()] == ["logic_tracks.select"]
     assert [e["event"] for e in fake.log()] == ["duplicate_track.start", "duplicate_track.done"]
 
 
@@ -86,28 +93,28 @@ def test_an_unconfirmed_selection_duplicates_nothing(fake, clicks):
     assert clicks == []
 
 
-def test_a_copy_that_never_appears_says_so(fake, clicks):
+def test_a_copy_that_never_appears_says_so(fake, clicks, names):
     serve(fake, [[SOURCE]])
     with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="no copy of 'Lead Vocal' appeared"):
         duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
 
-    assert sent(fake, "rename") == []
+    assert names == []
 
 
-def test_a_new_track_that_is_not_right_after_the_source_is_not_taken_for_the_copy(fake, clicks):
+def test_a_new_track_that_is_not_right_after_the_source_is_not_taken_for_the_copy(fake, clicks, names):
     serve(fake, [[SOURCE], [COPY, SOURCE]])
     with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="not one copy after it"):
         duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
 
-    assert sent(fake, "rename") == []
+    assert names == []
 
 
-def test_a_copy_without_the_regions_is_not_renamed(fake, clicks):
+def test_a_copy_without_the_regions_is_not_renamed(fake, clicks, names):
     serve(fake, [[SOURCE], [SOURCE, COPY]], copy_regions=[])
     with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="does not carry its regions; undo 1"):
         duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
 
-    assert sent(fake, "rename") == []
+    assert names == []
 
 
 def test_a_rename_that_lands_on_the_source_says_how_to_get_back(fake, clicks):
@@ -117,12 +124,12 @@ def test_a_rename_that_lands_on_the_source_says_how_to_get_back(fake, clicks):
         duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
 
 
-def test_a_copy_that_moved_before_the_rename_is_not_renamed(fake, clicks):
+def test_a_copy_that_moved_before_the_rename_is_not_renamed(fake, clicks, names):
     serve(fake, [[SOURCE], [SOURCE, COPY], [SOURCE, ("Lead Vocal", "trk_z")]])
     with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="moved before it could be renamed; check Logic"):
         duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
 
-    assert sent(fake, "rename") == []
+    assert names == []
 
 
 def test_a_source_dragged_into_the_copys_place_before_the_rename_is_caught(fake, clicks):
@@ -130,3 +137,15 @@ def test_a_source_dragged_into_the_copys_place_before_the_rename_is_caught(fake,
     serve(fake, [[SOURCE], [SOURCE, COPY], [SOURCE, COPY], renamed_source])
     with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="did not land on the copy.*undo 2"):
         duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
+
+
+def test_a_name_logic_refuses_is_not_typed_instead(fake, clicks, monkeypatch):
+    def refuse(*args):
+        raise ExecutorError("could not set track 2's name: the selected tracks are Track 1 “Lead Vocal”")
+
+    monkeypatch.setattr("mixhand.executor.primitives.set_track_name", refuse)
+    serve(fake, [[SOURCE], [SOURCE, COPY], [SOURCE, COPY]])
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="selected tracks are.*check Logic before undoing"):
+        duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
+
+    assert [c["call"] for c in fake.calls()] == ["logic_tracks.select"]
