@@ -1,7 +1,10 @@
+import time
+
 from mixhand.executor import ActionResult, ExecutorError
 from mixhand.executor.actionlog import log
+from mixhand.executor.ax import click_menu
 from mixhand.executor.fader import DB_AT_RAW, PAN_CENTRE_RAW, pan_contract, raw_nearest, volume_contract
-from mixhand.executor.logicpro import LogicPro
+from mixhand.executor.logicpro import POLL_S, LogicPro
 
 INSERT_ATTEMPTS = 3
 VOLUME_DB_MIN = -17.0
@@ -11,6 +14,9 @@ PAN_MAX = 63
 LANDS_WITHIN_RAW = 5
 # A target exactly between two detents makes LogicProMCP land on alternate sides on repeat calls.
 TIE_BREAK_RAW = 0.25
+DUPLICATE_MENU = ("Track", "Other", "New Track With Duplicate Settings and Content")
+# LogicProMCP's track list trails a write by about three seconds in the same process.
+SETTLES_WITHIN_S = 10.0
 
 
 def track_index(logic: LogicPro, track: str) -> int:
@@ -18,7 +24,10 @@ def track_index(logic: LogicPro, track: str) -> int:
 
 
 def _track(logic: LogicPro, track: str) -> tuple[int, dict]:
-    tracks = logic.tracks()
+    return _named(logic.tracks(), track)
+
+
+def _named(tracks: list[dict], track: str) -> tuple[int, dict]:
     names = [t["name"] for t in tracks]
     matches = [i for i, name in enumerate(names) if name == track]
     if not matches:
@@ -169,3 +178,89 @@ def undo(logic: LogicPro, n: int = 1) -> ActionResult:
         if result.get("sent") is not True:
             raise ExecutorError(f"undo {i + 1} of {n} was not sent: {result.get('reason')}")
     return ActionResult(ok=True, detail=f"Sent {n} undo", verified=False)
+
+
+def duplicate_track(logic: LogicPro, source: str, new_name: str) -> ActionResult:
+    logic.require_project()
+    before = logic.tracks()
+    index, entry = _named(before, source)
+    if any(t["name"] == new_name for t in before):
+        raise ExecutorError(f"a track named {new_name!r} already exists; Mixhand cannot tell whether it is a copy of {source!r}")
+    spans = _spans(logic, index)
+    if not entry.get("track_ref"):
+        raise ExecutorError(f"Logic gave no track_ref for {source!r}, so the duplicate could not be bound to it")
+    log("duplicate_track.start", source=source, new_name=new_name, regions=len(spans))
+    selected = logic.call("logic_tracks", "select", index=index, target_ref=entry["track_ref"])
+    if not (selected.get("state") == "A" and selected.get("verified") is True):
+        raise ExecutorError(
+            f"selecting {source!r} was not confirmed (state {selected.get('state')}: {selected.get('reason')})"
+        )
+    try:
+        click_menu(*DUPLICATE_MENU)
+    except ExecutorError as e:
+        raise ExecutorError(f"{e}; check Logic and undo 1 if a copy was made") from e
+    copy_index, copy_ref = _new_track(logic, before, index, source)
+    if _spans(logic, copy_index) != spans:
+        raise ExecutorError(f"the copy of {source!r} does not carry its regions; undo 1 to remove it")
+    _rename_copy(logic, copy_index, copy_ref, source, new_name)
+    log("duplicate_track.done", source=source, new_name=new_name, position=copy_index + 1, regions=len(spans), verified=True)
+    return ActionResult(
+        ok=True, detail=f"Duplicated {source} to {new_name} with {len(spans)} region{'' if len(spans) == 1 else 's'}", verified=True
+    )
+
+
+def _spans(logic: LogicPro, index: int) -> list[tuple[str, str]]:
+    regions = logic.read(f"logic://tracks/{index}/regions")
+    if not isinstance(regions, list):
+        raise ExecutorError(f"the regions on track {index + 1} could not be read")
+    return sorted((r["startPosition"], r["endPosition"]) for r in regions)
+
+
+def _new_track(logic: LogicPro, before: list[dict], index: int, source: str) -> tuple[int, str]:
+    refs = [t["track_ref"] for t in before]
+    deadline = time.monotonic() + SETTLES_WITHIN_S
+    while True:
+        after = logic.tracks()
+        added = [t.get("track_ref") for t in after if t.get("track_ref") not in refs]
+        if added:
+            break
+        if time.monotonic() >= deadline:
+            raise ExecutorError(
+                f"no copy of {source!r} appeared within {SETTLES_WITHIN_S:g}s; "
+                "check Logic and undo 1 if a copy was made"
+            )
+        time.sleep(POLL_S)
+    expected = refs[: index + 1] + added[:1] + refs[index + 1 :]
+    if [t.get("track_ref") for t in after] != expected or after[index + 1]["name"] != source:
+        raise ExecutorError(
+            f"duplicating {source!r} left {[t['name'] for t in after]}, not one copy after it; check Logic before undoing"
+        )
+    return index + 1, added[0]
+
+
+def _rename_copy(logic: LogicPro, index: int, copy_ref: str, source: str, new_name: str) -> None:
+    current = logic.tracks()
+    if index >= len(current) or current[index].get("track_ref") != copy_ref:
+        raise ExecutorError(f"the copy of {source!r} moved before it could be renamed; check Logic before undoing")
+    # LogicProMCP refuses a target_ref rename while two tracks share a name, and reissues the renamed track's ref.
+    renamed = logic.call("logic_tracks", "rename", index=index, name=new_name)
+    if renamed.get("verified") is not True:
+        raise ExecutorError(f"renaming the copy of {source!r} to {new_name!r} was not confirmed; check Logic before undoing")
+    deadline = time.monotonic() + SETTLES_WITHIN_S
+    while True:
+        after = logic.tracks()
+        if [t["name"] for t in after] != [t["name"] for t in current]:
+            break
+        if time.monotonic() >= deadline:
+            raise ExecutorError(f"Logic still shows no {new_name!r} {SETTLES_WITHIN_S:g}s after renaming; check Logic before undoing")
+        time.sleep(POLL_S)
+    others = [t.get("track_ref") for i, t in enumerate(current) if i != index]
+    if (
+        len(after) != len(current)
+        or after[index]["name"] != new_name
+        or [t.get("track_ref") for i, t in enumerate(after) if i != index] != others
+    ):
+        raise ExecutorError(
+            f"{new_name!r} did not land on the copy of {source!r} (Logic shows {[t['name'] for t in after]}); "
+            "undo 2 to return to where it started"
+        )

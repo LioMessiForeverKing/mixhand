@@ -69,7 +69,7 @@ Module: `mixhand/executor/`. Each primitive is a function that returns `ActionRe
 
 | # | Primitive | Signature | Strategy |
 |---|-----------|-----------|----------|
-| 1 | Duplicate track with region | `duplicate_track(source: str, new_name: str) -> ActionResult` | Select source track (AX click on track header), `Cmd+D` (New Track With Duplicate Settings), select source regions in cycle range, `Cmd+C`, select new track, `Cmd+V`, rename via double-click track name + type. |
+| 1 | Duplicate track with region | `duplicate_track(source: str, new_name: str) -> ActionResult` | Select source track (LogicProMCP `select`, confirmed), Track › Other › New Track With Duplicate Settings and Content (copies the regions; answered in `SETUP.md`), rename the copy through LogicProMCP. |
 | 2 | Insert plugin | `insert_plugin(track: str, plugin: str, slot: int \| None = None) -> ActionResult` | In Mixer: AX-find channel strip by name → first empty Audio FX slot (or `slot`) → click → walk popup menu path (e.g. `EQ > Channel EQ`, `Dynamics > Compressor`, `Reverb > ChromaVerb`, `Delay > Stereo Delay`, `Dynamics > DeEsser 2`). Maintain a menu-path map in `executor/plugin_paths.py`. Close the plugin window that opens. |
 | 3 | Set pan / volume | `set_pan(track, value: int)` (−64..63), `set_volume(track, db: float)` | Primary: Mackie Control via IAC (select strip bank, send fader/V-pot). Fallback: AX double-click value field in Mixer, type number, Enter. |
 | 4 | Create aux with plugin | `create_aux(name: str, plugin: str) -> ActionResult` | Key command "New Auxiliary Channel Strip" (assign it a shortcut in Logic and document it in `SETUP.md`), rename, then `insert_plugin`. |
