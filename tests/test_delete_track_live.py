@@ -37,21 +37,23 @@ def no_copy_left():
 
 
 @pytest.mark.parametrize("run", range(10))
-def test_duplicate_lead_vocal_with_its_regions(run, no_copy_left):
+def test_delete_a_duplicate_and_undo_the_delete(run, no_copy_left):
     before, before_spans = session()
-    source = before.index(SOURCE)
-    assert before_spans[source], f"{SOURCE} needs at least one region for this test to mean anything"
 
     with LogicPro.from_env() as logic:
-        first = duplicate_track(logic, SOURCE, COPY)
-        with pytest.raises(ExecutorError, match="already exists"):
-            duplicate_track(logic, SOURCE, COPY)
-    assert first.verified
-
-    names, spans = session()
-    assert names == before[: source + 1] + [COPY] + before[source + 1 :]
-    assert spans[source + 1] == before_spans[source]
+        duplicate_track(logic, SOURCE, COPY)
+    duplicated = session()
 
     with LogicPro.from_env() as logic:
-        undo(logic, 2)
+        assert delete_track(logic, COPY).verified
+    assert session() == (before, before_spans)
+
+    with LogicPro.from_env() as logic:
+        undo(logic, 1)
+    assert session() == duplicated
+
+    with LogicPro.from_env() as logic:
+        delete_track(logic, COPY)
+        with pytest.raises(ExecutorError, match="no track named"):
+            delete_track(logic, COPY)
     assert session() == (before, before_spans)

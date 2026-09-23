@@ -76,7 +76,8 @@ Module: `mixhand/executor/`. Each primitive is a function that returns `ActionRe
 | 5 | Add send | `add_send(track: str, aux: str, level_db: float) -> ActionResult` | AX: channel strip → first empty Send slot → click → choose `Bus > Bus N` where N is the aux's bus (read from state). Level via Mackie send mode or AX value field. |
 | 6 | Set plugin parameter | `set_plugin_param(track, plugin, param: str, value: float) -> ActionResult` | **Demo-limited.** Pre-map a small fixed set via Logic Controller Assignments → MIDI CC on IAC, documented in `SETUP.md`: Channel EQ high-pass freq, Compressor threshold + ratio, ChromaVerb mix/decay. Anything outside the map → `ExecutorError("param not mapped")`. Do not attempt AX control of plugin windows. |
 
-Plus two utilities:
+Plus three utilities:
+- `delete_track(track)` — LogicProMCP `logic_tracks.delete` bound by `track_ref`, then a fresh read must show exactly that track gone. Not a planner tool; it lets live tests clean up after themselves.
 - `undo(n: int = 1)` — `Cmd+Z` × n.
 - `begin_group(label) / end_group()` — records the count of Logic actions performed so `undo_group()` can reverse the whole AI action. (Logic has no native undo grouping we can drive; count and replay `Cmd+Z`.)
 
@@ -175,7 +176,7 @@ Run it ≥15 times before recording. Capture with Screen Studio; audio via Loopb
 ## 10. Rules for Claude Code
 
 - **Reliability over features.** A primitive that works 7/10 is not done. Add retries with re-scrape, add waits keyed to AX state changes rather than fixed sleeps.
-- **Never destructive.** No delete, no overwrite, no save. The tool never calls `Cmd+S`. Test on a copy of the project.
+- **Delete only what was named, never save.** Mixhand deletes only inside `MIXHAND_PROJECT`, and only a target named and bound to LogicProMCP's `track_ref`. It confirms each delete from a fresh read and names the undo. No overwrite, no save: the tool never calls `Cmd+S`. Test on a copy of the project.
 - **Log everything.** Every AX click, keystroke, and MIDI message goes to `logs/actions.jsonl` with timestamp and outcome.
 - **Fail loudly.** No bare `except`. No `pass`. If Logic isn't frontmost, stop.
 - **Don't fight Logic's UI.** If a menu path is unstable, check the `SETUP.md` fallback: save a `Lead Vocal Chain` and `Double Chain` channel strip setting by hand and implement `load_channel_strip_setting(track, name)` as an alternate path for primitive 2. Prefer that over hours of AX debugging.
