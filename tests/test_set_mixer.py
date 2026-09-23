@@ -39,6 +39,7 @@ def test_volume_in_db_reaches_logicpromcp_as_its_fader_contract(fake, db, contra
     assert result.detail == detail
     [params] = sent(fake, "set_volume")
     assert params["track"] == 1
+    assert params["target_ref"] == "trk_Lead Vocal"
     if contract is not None:
         assert contract < params["value"] < contract + 0.002
     assert [e["event"] for e in fake.log()] == ["set_volume.start", "set_volume.done"]
@@ -62,6 +63,7 @@ def test_a_hard_pan_stays_inside_logicpromcps_contract(fake, pan):
 
     [params] = sent(fake, "set_pan")
     assert -1.0 <= params["value"] <= 1.0
+    assert round(63.5 + params["value"] * 63.5) == pan + 64
 
 
 def test_pan_reports_where_it_landed_when_the_detent_grid_is_offset(fake):
@@ -98,6 +100,15 @@ def test_a_move_that_landed_away_from_the_target_says_where(fake):
         set_volume(logic, "Lead Vocal", -3.0)
 
     assert fake.log()[-1]["verified"] is False
+
+
+def test_a_track_that_changed_under_the_move_is_refused_not_moved_elsewhere(fake):
+    serve(fake, "set_volume", {"state": "C", "error": "stale_target_reference", "write_attempted": False})
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="stale_target_reference"):
+        set_volume(logic, "Lead Vocal", -3.0)
+
+    [params] = sent(fake, "set_volume")
+    assert params["target_ref"] == "trk_Lead Vocal"
 
 
 def test_a_refused_move_is_logged_and_raised(fake):

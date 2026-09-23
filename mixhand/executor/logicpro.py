@@ -131,11 +131,14 @@ class LogicPro:
             raise ExecutorError(f"{uri} could not be read") from e
 
     def track_names(self) -> list[str]:
+        return [track["name"] for track in self.tracks()]
+
+    def tracks(self) -> list[dict]:
         deadline = time.monotonic() + TRACKS_READABLE_WITHIN_S
         while True:
             tracks = self.read("logic://tracks")
             if tracks.get("readable") and tracks.get("source") == "ax_live":
-                return [track["name"] for track in tracks["data"]]
+                return tracks["data"]
             if time.monotonic() >= deadline:
                 raise ExecutorError(
                     f"Logic's track list was not readable within {TRACKS_READABLE_WITHIN_S:g}s "

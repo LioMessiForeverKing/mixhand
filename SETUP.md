@@ -73,7 +73,7 @@ roughly centre. Keep your hands off Logic while it runs.
 | Which AX element exposes empty Audio FX and Send slots? | Empty inserts: LogicProMCP's `get_inventory` reports them (`read_status: empty`). Empty sends: LogicProMCP says an empty send slot exposes no `AXValue`, `AXValueDescription` or `AXTitle`. Primitive 5 has to find another way (milestone 2). |
 | Can the cycle range be read via AX? | Only whether cycle is on. `logic://transport/state` has `isCycleEnabled` but no start or end bar. Plan on `--start-bar/--end-bar` (milestone 3). |
 | Does `Cmd+D` create a duplicate track without regions? | Not tested yet (primitive 1, milestone 2). |
-| Does Mackie Control over IAC move faders without focus issues? | Not needed for primitive 3. LogicProMCP's `logic_mixer.set_volume` and `set_pan` move the strip by AX increments and read it back, 20 of 20 live runs, without Logic in front. Logic moves by 10 raw units per increment, so volume lands within 0.5 dB of the request from −12 dB up (coarser below) and pan within ±5. Mixhand reports where it actually landed. Mackie is untested. |
+| Does Mackie Control over IAC move faders without focus issues? | Not needed for primitive 3. LogicProMCP's `logic_mixer.set_volume` and `set_pan` move the strip by AX increments and read it back, 20 of 20 live runs, without Logic in front. Logic moves by 10 raw units per increment, so pan lands within ±5 and volume within about 0.5 dB from −5 dB up, 1 dB down to −17 dB, 2.5 dB at −20 dB, 5 dB at −30 dB and 10 dB or more below −40 dB. Mixhand reports where it actually landed. Mackie is untested. |
 
 ## Known issues
 

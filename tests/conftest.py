@@ -13,7 +13,7 @@ def tracks(*names, readable=True):
         "readable": readable,
         "source": "ax_live" if readable else "project_file",
         "reason": None if readable else "track_names_synthesised_from_project_file",
-        "data": [{"id": i, "name": name} for i, name in enumerate(names)],
+        "data": [{"id": i, "name": name, "track_ref": f"trk_{name}"} for i, name in enumerate(names)],
     }
 
 

@@ -1,5 +1,4 @@
-# Logic's volume fader text at each raw AX position 0..233, read from AXValueDescription on
-# Logic 12.3.1. LogicProMCP reports only the raw position, so this table is how Mixhand speaks dB.
+# Logic 12.3.1's fader AXValueDescription at raw 0..233; LogicProMCP reports only the raw position.
 DB_AT_RAW = (
     float("-inf"), -95.0, -90.0, -85.0, -80.0, -75.0, -70.0, -65.0, -60.0, -58.0,
     -56.0, -54.0, -52.0, -50.0, -48.0, -46.0, -44.0, -42.0, -41.0, -40.0,
