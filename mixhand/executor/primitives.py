@@ -2,7 +2,7 @@ import time
 
 from mixhand.executor import ActionResult, ExecutorError
 from mixhand.executor.actionlog import log
-from mixhand.executor.ax import click_menu, require_inspector, set_track_name
+from mixhand.executor.ax import click_menu, click_mixer_menu, require_inspector, require_mixer, set_track_name
 from mixhand.executor.fader import DB_AT_RAW, PAN_CENTRE_RAW, pan_contract, raw_nearest, volume_contract
 from mixhand.executor.logicpro import POLL_S, LogicPro
 
@@ -15,6 +15,9 @@ LANDS_WITHIN_RAW = 5
 # A target exactly between two detents makes LogicProMCP land on alternate sides on repeat calls.
 TIE_BREAK_RAW = 0.25
 DUPLICATE_MENU = ("Track", "Other", "New Track With Duplicate Settings and Content")
+AUX_MENU = ("Options", "Create New Auxiliary Channel Strip")
+AUX_TRACK_MENU = ("Options", "Create Tracks for Selected Channel Strips")
+INSERTABLE = ("Gain", "Channel EQ", "Compressor")
 # LogicProMCP's track list trails a write by about three seconds in the same process.
 SETTLES_WITHIN_S = 10.0
 
@@ -300,4 +303,98 @@ def _rename_copy(logic: LogicPro, index: int, copy_ref: str, source: str, new_na
         raise ExecutorError(
             f"{new_name!r} did not land on the copy of {source!r} (Logic shows {[t['name'] for t in after]}); "
             "undo 2 to return to where it started"
+        )
+
+
+def create_aux(logic: LogicPro, name: str, plugin: str) -> ActionResult:
+    if plugin not in INSERTABLE:
+        raise ExecutorError(f"LogicProMCP inserts only {', '.join(INSERTABLE)}, so an aux cannot carry {plugin!r} yet")
+    logic.require_project()
+    before = logic.tracks()
+    if any(t["name"] == name for t in before):
+        _, entry = _named(before, name)
+        if entry.get("type") != "aux":
+            raise ExecutorError(f"a track named {name!r} already exists and is not an aux")
+        log("create_aux.skipped", name=name, plugin=plugin)
+        inserted = insert_plugin(logic, name, plugin)
+        return ActionResult(ok=True, detail=f"Aux {name} already exists; {inserted.detail}", verified=inserted.verified)
+    require_mixer()
+    require_inspector()
+    log("create_aux.start", name=name, plugin=plugin)
+    try:
+        click_mixer_menu(*AUX_MENU)
+    except ExecutorError as e:
+        raise ExecutorError(f"{e}; check the Mixer and undo 1 if an aux strip was made") from e
+    try:
+        click_mixer_menu(*AUX_TRACK_MENU)
+    except ExecutorError as e:
+        raise ExecutorError(f"{e}; check the Mixer: undo 1 if the new aux strip has no track, undo 2 if it has one") from e
+    index, ref, current = _new_aux(logic, before)
+    selected = logic.call("logic_tracks", "select", index=index, target_ref=ref)
+    if not (selected.get("state") == "A" and selected.get("verified") is True):
+        raise ExecutorError(
+            f"selecting the new aux was not confirmed (state {selected.get('state')}: {selected.get('reason')}); "
+            "undo 2 removes it"
+        )
+    steps = 2
+    if current != name:
+        _rename_aux(logic, index, ref, current, name)
+        steps = 3
+    try:
+        inserted = insert_plugin(logic, name, plugin)
+    except ExecutorError as e:
+        raise ExecutorError(
+            f"{e}; aux {name} exists, and {plugin} may or may not be on it: check Logic, then run again "
+            f"to finish, or undo {steps} to remove it without the plugin, {steps + 1} with it"
+        ) from e
+    log("create_aux.done", name=name, plugin=plugin, position=index + 1, verified=inserted.verified)
+    return ActionResult(ok=True, detail=f"Created aux {name} with {plugin}; undo {steps + 1} removes it", verified=inserted.verified)
+
+
+def _new_aux(logic: LogicPro, before: list[dict]) -> tuple[int, str, str]:
+    refs = [t.get("track_ref") for t in before]
+    deadline = time.monotonic() + SETTLES_WITHIN_S
+    while True:
+        after = logic.tracks()
+        added = [i for i, t in enumerate(after) if t.get("track_ref") not in refs]
+        if added:
+            break
+        if time.monotonic() >= deadline:
+            raise ExecutorError(f"no aux track appeared within {SETTLES_WITHIN_S:g}s; check the Mixer before undoing")
+        time.sleep(POLL_S)
+    kept = [t.get("track_ref") for i, t in enumerate(after) if i not in added]
+    if len(added) != 1 or kept != refs or after[added[0]].get("type") != "aux":
+        raise ExecutorError(
+            f"creating the aux left {[t['name'] for t in after]}, not one new aux track; check Logic before undoing"
+        )
+    new = after[added[0]]
+    if not new.get("track_ref"):
+        raise ExecutorError("Logic gave no track_ref for the new aux, so it could not be bound; check Logic before undoing")
+    return added[0], new["track_ref"], new["name"]
+
+
+def _rename_aux(logic: LogicPro, index: int, ref: str, current: str, name: str) -> None:
+    before = logic.tracks()
+    if index >= len(before) or before[index].get("track_ref") != ref:
+        raise ExecutorError("the new aux moved before it could be renamed; check Logic before undoing")
+    try:
+        set_track_name(index + 1, current, name)
+    except ExecutorError as e:
+        raise ExecutorError(f"renaming the new aux to {name!r} failed ({e}); check Logic before undoing") from e
+    deadline = time.monotonic() + SETTLES_WITHIN_S
+    while True:
+        after = logic.tracks()
+        if [t["name"] for t in after] != [t["name"] for t in before]:
+            break
+        if time.monotonic() >= deadline:
+            raise ExecutorError(f"Logic still shows no {name!r} {SETTLES_WITHIN_S:g}s after renaming; check Logic before undoing")
+        time.sleep(POLL_S)
+    others = [t.get("track_ref") for i, t in enumerate(before) if i != index]
+    if (
+        len(after) != len(before)
+        or after[index]["name"] != name
+        or [t.get("track_ref") for i, t in enumerate(after) if i != index] != others
+    ):
+        raise ExecutorError(
+            f"{name!r} did not land on the new aux (Logic shows {[t['name'] for t in after]}); undo 3 removes it"
         )

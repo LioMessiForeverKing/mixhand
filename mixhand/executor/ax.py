@@ -104,6 +104,73 @@ end run
 """
 
 
+# The Mixer's Edit, Options and View menus are menu buttons inside its own window, not items of the menu bar.
+MIXER_BAR = """
+on mixerBar()
+    tell application "System Events" to tell process "Logic Pro"
+        set found to {}
+        repeat with w in windows
+            repeat with g in (groups of w)
+                repeat with m in (groups of g whose description is "Mixer")
+                    repeat with b in (groups of m)
+                        if (count of (menu buttons of b whose description is "Options")) is 1 then set end of found to contents of b
+                    end repeat
+                end repeat
+            end repeat
+        end repeat
+        if (count of found) is not 1 then error "found " & (count of found) & " Mixers; show exactly one, in the Tracks window (X) or its own (Window > Open Mixer)"
+        return item 1 of found
+    end tell
+end mixerBar
+"""
+
+REQUIRE_MIXER = MIXER_BAR + """
+on run
+    my mixerBar()
+end run
+"""
+
+# Straight after a strip is created, Logic drops a click on a Mixer menu button, so the click repeats until the menu opens.
+CLICK_MIXER_MENU = MIXER_BAR + """
+on run {menuName, itemName}
+    set bar to my mixerBar()
+    tell application "System Events" to tell process "Logic Pro"
+        set opener to first menu button of bar whose description is menuName
+        repeat with attempt from 1 to 10
+            click opener
+            repeat 5 times
+                if exists menu 1 of opener then exit repeat
+                delay 0.1
+            end repeat
+            if exists menu 1 of opener then exit repeat
+        end repeat
+        if not (exists menu 1 of opener) then error "the Mixer's " & menuName & " menu did not open"
+        try
+            set choice to menu item itemName of menu 1 of opener
+            set usable to enabled of choice
+        on error failure
+            perform action "AXCancel" of menu 1 of opener
+            error failure
+        end try
+        if not usable then
+            perform action "AXCancel" of menu 1 of opener
+            error menuName & " > " & itemName & " is disabled in the Mixer"
+        end if
+        click choice
+        return attempt
+    end tell
+end run
+"""
+
+
+def require_mixer() -> None:
+    _run(REQUIRE_MIXER, "finding the Mixer")
+
+
+def click_mixer_menu(menu: str, item: str) -> None:
+    _run(CLICK_MIXER_MENU, f"clicking Mixer {menu} > {item}", menu, item)
+
+
 def require_inspector() -> None:
     _run(REQUIRE_INSPECTOR, "finding the Inspector's Track: field")
 
