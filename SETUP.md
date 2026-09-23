@@ -94,6 +94,11 @@ it fails partway.
   waits for the header's label to change, then checks by ref that no other track changed. An
   Inspector rename is one undo step (Edit shows *Undo Renaming*). The `Track:` label is English;
   another Logic language needs it re-read.
+- Keep the Inspector shown (View › Show Inspector). `duplicate_track` checks for its `Track:` field
+  before touching anything, and refuses if it is hidden.
+- The Inspector renames whichever track is selected. If you click another track in the tenth of a
+  second between Mixhand's selection check and its write, that track is renamed instead. Mixhand
+  then reports the mismatch and says to check Logic before undoing.
 
 - LogicProMCP speaks volume as a 0..1 contract, never dB. `mixhand/executor/fader.py` holds
   Logic's dB at each of the fader's 234 raw positions, read off the fader's AX value text on

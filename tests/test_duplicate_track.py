@@ -44,6 +44,7 @@ def clicks(monkeypatch):
 @pytest.fixture(autouse=True)
 def names(monkeypatch):
     named = []
+    monkeypatch.setattr("mixhand.executor.primitives.require_inspector", lambda: None)
     monkeypatch.setattr("mixhand.executor.primitives.set_track_name", lambda *args: named.append(args))
     return named
 
@@ -139,7 +140,7 @@ def test_a_source_dragged_into_the_copys_place_before_the_rename_is_caught(fake,
         duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
 
 
-def test_a_name_logic_refuses_is_not_typed_instead(fake, clicks, monkeypatch):
+def test_a_name_logic_refuses_is_not_retried_through_logicpromcp_rename(fake, clicks, monkeypatch):
     def refuse(*args):
         raise ExecutorError("could not set track 2's name: the selected tracks are Track 1 “Lead Vocal”")
 
@@ -149,3 +150,15 @@ def test_a_name_logic_refuses_is_not_typed_instead(fake, clicks, monkeypatch):
         duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
 
     assert [c["call"] for c in fake.calls()] == ["logic_tracks.select"]
+
+
+def test_a_hidden_inspector_stops_before_anything_is_touched(fake, clicks, names, monkeypatch):
+    def hidden():
+        raise ExecutorError("finding the Inspector's Track: field failed: found 0 Track: fields; show the Inspector")
+
+    monkeypatch.setattr("mixhand.executor.primitives.require_inspector", hidden)
+    serve(fake, [[SOURCE]])
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="show the Inspector"):
+        duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
+
+    assert fake.calls() == [] and clicks == [] and names == []

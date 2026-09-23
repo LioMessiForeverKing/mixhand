@@ -2,7 +2,7 @@ import time
 
 from mixhand.executor import ActionResult, ExecutorError
 from mixhand.executor.actionlog import log
-from mixhand.executor.ax import click_menu, set_track_name
+from mixhand.executor.ax import click_menu, require_inspector, set_track_name
 from mixhand.executor.fader import DB_AT_RAW, PAN_CENTRE_RAW, pan_contract, raw_nearest, volume_contract
 from mixhand.executor.logicpro import POLL_S, LogicPro
 
@@ -224,6 +224,7 @@ def duplicate_track(logic: LogicPro, source: str, new_name: str) -> ActionResult
     spans = _spans(logic, index)
     if not entry.get("track_ref"):
         raise ExecutorError(f"Logic gave no track_ref for {source!r}, so the duplicate could not be bound to it")
+    require_inspector()
     log("duplicate_track.start", source=source, new_name=new_name, regions=len(spans))
     selected = logic.call("logic_tracks", "select", index=index, target_ref=entry["track_ref"])
     if not (selected.get("state") == "A" and selected.get("verified") is True):
