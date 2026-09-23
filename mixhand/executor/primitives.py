@@ -180,6 +180,40 @@ def undo(logic: LogicPro, n: int = 1) -> ActionResult:
     return ActionResult(ok=True, detail=f"Sent {n} undo", verified=False)
 
 
+def delete_track(logic: LogicPro, track: str) -> ActionResult:
+    logic.require_project()
+    before = logic.tracks()
+    index, entry = _named(before, track)
+    if not entry.get("track_ref"):
+        raise ExecutorError(f"Logic gave no track_ref for {track!r}, so the delete could not be bound to it")
+    log("delete_track.start", track=track, position=index + 1)
+    try:
+        result = logic.call("logic_tracks", "delete", index=index, target_ref=entry["track_ref"])
+    except ExecutorError as e:
+        log("delete_track.refused", track=track, error=e.payload.get("error"))
+        raise
+    if not (result.get("state") == "A" and result.get("verified") is True):
+        raise ExecutorError(
+            f"deleting {track!r} was not confirmed (state {result.get('state')}: {result.get('reason')}); "
+            "check Logic before undoing"
+        )
+    refs = [t.get("track_ref") for t in before]
+    deadline = time.monotonic() + SETTLES_WITHIN_S
+    while True:
+        after = logic.tracks()
+        if [t.get("track_ref") for t in after] != refs:
+            break
+        if time.monotonic() >= deadline:
+            raise ExecutorError(f"Logic still shows {track!r} {SETTLES_WITHIN_S:g}s after deleting it; check Logic before undoing")
+        time.sleep(POLL_S)
+    if [t.get("track_ref") for t in after] != refs[:index] + refs[index + 1 :]:
+        raise ExecutorError(
+            f"deleting {track!r} left {[t['name'] for t in after]}, not the session without it; check Logic before undoing"
+        )
+    log("delete_track.done", track=track, position=index + 1, verified=True, trace_id=result.get("trace_id"))
+    return ActionResult(ok=True, detail=f"Deleted {track}; undo 1 restores it", verified=True)
+
+
 def duplicate_track(logic: LogicPro, source: str, new_name: str) -> ActionResult:
     logic.require_project()
     before = logic.tracks()

@@ -65,6 +65,9 @@ and checks the slot is empty again, ten times. It then sets `Lead Vocal`'s volum
 and its pan to ten positions, checks a repeat call lands in the same place, and ends at 0 dB and
 roughly centre. Last, it duplicates `Lead Vocal` to `Lead Vocal Double` with its regions, checks a second
 call adds nothing, undoes both steps and checks the session is back where it started, ten times.
+It then duplicates `Lead Vocal Double` again, deletes it, undoes the delete, deletes it once more and
+checks a second delete is refused, ten times. Either test deletes a leftover `Lead Vocal Double` if
+it fails partway.
 `Lead Vocal` needs at least one region for that part. Keep your hands off Logic while it runs.
 
 ## SPEC §12, answered
