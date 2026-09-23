@@ -85,9 +85,20 @@ it fails partway.
 - LogicProMCP reads the track list live only while Logic is the frontmost app. With the terminal in
   front, `logic://tracks` stays on names from the project file (`Track 1`), and Mixhand fails after
   10 s. Bring Logic to the front before running anything.
-- After a duplicate, both tracks share the source's name, and LogicProMCP refuses to rename by
-  `track_ref` while names clash. `duplicate_track` renames by position instead, checks by ref on both
-  sides that it hit the copy, and says `undo 2` if it did not.
+- `duplicate_track` does not use LogicProMCP's `logic_tracks.rename`. That command falls back to
+  typing the name after Track › Rename Track, and when the field is not focused yet, the keystrokes
+  reach Logic as key commands: about 3 in 80 live duplicates came out misnamed (` Double`), and one
+  of those runs lost a region. Mixhand sets the name in the Inspector's `Track:` field through
+  System Events instead, with no keystrokes. It first requires that the copy's header
+  (`Track N “name”`) is the only selected track and that the Inspector names it. Afterwards it
+  waits for the header's label to change, then checks by ref that no other track changed. An
+  Inspector rename is one undo step (Edit shows *Undo Renaming*). The `Track:` label is English;
+  another Logic language needs it re-read.
+- Keep the Inspector shown (View › Show Inspector). `duplicate_track` checks for its `Track:` field
+  before touching anything, and refuses if it is hidden.
+- The Inspector renames whichever track is selected. If you click another track in the tenth of a
+  second between Mixhand's selection check and its write, that track is renamed instead. Mixhand
+  then reports the mismatch and says to check Logic before undoing.
 
 - LogicProMCP speaks volume as a 0..1 contract, never dB. `mixhand/executor/fader.py` holds
   Logic's dB at each of the fader's 234 raw positions, read off the fader's AX value text on
