@@ -188,6 +188,8 @@ def test_a_strip_with_an_empty_slot_above_a_plugin_is_refused_before_anything_ch
         pytest.fail(f"the project's last edit was {before[1]!r}, so the test's undo steps could not be told apart; make any other edit first")
 
     with LogicPro.from_env() as logic:
+        if plugins_on(logic, TRACK):
+            pytest.fail(f"remove every plugin from {TRACK!r} before running this")
         assert create_aux(logic, AUX, "ChromaVerb").verified
         deadline = time.monotonic() + 10
         while len(insert_rows(TRACK, "")) < 2:

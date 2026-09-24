@@ -73,9 +73,10 @@ Last, it creates `Mixhand Aux` with Channel EQ, ChromaVerb and Stereo Delay in t
 second call adds nothing, then undoes it one step at a time and checks the fourth undo is *Create
 New Auxiliary Channel Strip* and the session and Edit menu are back where they started, ten times
 each. Then it creates `Mixhand Aux` with ChromaVerb and `Mixhand Delay` with Stereo Delay, checks
-Stereo Delay sits in the second aux's top slot, and undoes all eight steps by title, ten times. It
-then puts Stereo Delay under an empty slot on `Lead Vocal`, checks ChromaVerb is refused there with
-nothing changed, and undoes five steps, ten times. If it fails partway it says so rather than
+Stereo Delay sits in the second aux's top slot, and undoes all eight steps by title, ten times; 10 of
+10 passed. It then puts Stereo Delay under an empty slot on `Lead Vocal`, which must start with no
+plugins, checks ChromaVerb is refused there with nothing changed, and undoes five steps, ten times;
+10 of 10 passed. If it fails partway it says so rather than
 guessing how many undos to send.
 Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate -d`).
 
