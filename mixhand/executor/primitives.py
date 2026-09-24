@@ -154,7 +154,10 @@ def _pick_once(logic: LogicPro, track: str, plugin: str, before: list[dict], slo
     try:
         logic.require_project()
     except ExecutorError as e:
-        raise ExecutorError(f"{e}; the front project changed while {plugin} was picked, so check both before undoing") from e
+        raise ExecutorError(
+            f"{e}; {plugin} landed on {track} slot {slot}, but the front project could not be confirmed afterwards, "
+            "so check which project it is in before undoing"
+        ) from e
     log("insert_plugin.done", track=track, plugin=plugin, slot=slot, format=chosen, verified=True, via="menu")
     try:
         click_menu(*HIDE_PLUGIN_WINDOWS)

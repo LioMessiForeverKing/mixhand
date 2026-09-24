@@ -108,7 +108,7 @@ def test_a_project_switched_during_the_pick_is_not_confirmed(fake, menus):
         },
         tools={"logic_plugins.get_inventory": [BEFORE, BEFORE, inventory(slot(0, "Channel EQ"), slot(1, "ChromaVerb"), slot(2))]},
     )
-    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="front project changed.*check both"):
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="Real Song.*could not be confirmed afterwards.*which project"):
         insert_plugin(logic, "Lead Vocal", "ChromaVerb")
 
     assert menus["clicked"] == []
