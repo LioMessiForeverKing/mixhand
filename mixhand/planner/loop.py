@@ -59,13 +59,19 @@ def produce(
     items: list = [{"role": "user", "content": f"{prompt}\n\nThe session, read from Logic just now:\n{as_json(session)}"}]
     group = begin_group(prompt, session.project.path, [c.name for c in session.tracks])
     try:
-        _run(logic, client, model, plan, group, items, text, line)
+        try:
+            _run(logic, client, model, plan, group, items, text, line)
+        except BaseException as e:
+            end_group(logic, group, failed=None if isinstance(e, (PlannerError, openai.APIError)) else _why(e))
+            raise
+        return end_group(logic, group)
     except BaseException as e:
-        why = str(e) or type(e).__name__
-        log("planner.stopped", run=group.run, detail=why)
-        end_group(logic, group, failed=None if isinstance(e, (PlannerError, openai.APIError)) else why)
+        log("planner.stopped", run=group.run, detail=_why(e))
         raise
-    return end_group(logic, group)
+
+
+def _why(e: BaseException) -> str:
+    return str(e) or type(e).__name__
 
 
 def _run(

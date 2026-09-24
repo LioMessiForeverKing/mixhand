@@ -109,14 +109,19 @@ def test_a_run_stopped_by_a_failed_action_replays_the_failure(logic, monkeypatch
     ]
 
 
-def test_a_run_with_no_logged_end_says_so_rather_than_looking_finished(logic, monkeypatch):
+@pytest.mark.parametrize(
+    "last", [reply("Done."), reply("Cut off.", status="incomplete", incomplete="max_output_tokens")], ids=["finished", "cut-off"]
+)
+def test_a_run_whose_end_could_not_be_logged_replays_the_error_produce_showed(logic, monkeypatch, last):
     def stalled():
         raise ExecutorError("Logic stopped answering")
 
     monkeypatch.setattr("mixhand.executor.group.read_routes", stalled)
-    assert produce(monkeypatch, doubled(), reply("Done.")).exit_code == 1
+    shown = produce(monkeypatch, doubled(), last)
+    assert shown.exit_code == 1
+    assert "✖ Logic stopped answering" in shown.stderr
 
-    assert explain().stdout.splitlines()[-1] == NO_END
+    assert explain().stdout.splitlines()[-2:] == ["✖ Logic stopped answering", NO_END]
 
 
 def test_explain_with_no_run_logged_says_so(logic):
