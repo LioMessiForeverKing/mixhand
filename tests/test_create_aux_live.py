@@ -4,7 +4,7 @@ import subprocess
 import pytest
 
 from mixhand.executor.logicpro import LogicPro
-from mixhand.executor.primitives import create_aux, inserts, track_index, undo
+from mixhand.executor.primitives import SLOT_LABEL, create_aux, inserts, track_index, undo
 
 pytestmark = [
     pytest.mark.live,
@@ -12,7 +12,6 @@ pytestmark = [
 ]
 
 AUX = "Mixhand Aux"
-PLUGIN = "Channel EQ"
 
 # A menu item's title is only refreshed when its menu opens.
 UNDO_ITEM = """
@@ -54,22 +53,23 @@ def no_aux_left():
 
 
 @pytest.mark.parametrize("run", range(10))
-def test_create_an_aux_with_channel_eq_then_undo_it(run, no_aux_left):
+@pytest.mark.parametrize("plugin", ["Channel EQ", "ChromaVerb", "Stereo Delay"])
+def test_create_an_aux_with_a_plugin_then_undo_it(plugin, run, no_aux_left):
     before = session()
     if before[1] == "Undo Create New Auxiliary Channel Strip":
         pytest.fail("the project's last edit made an aux strip, so its undo steps could not be told apart; make any other edit first")
 
     with LogicPro.from_env() as logic:
-        first = create_aux(logic, AUX, PLUGIN)
+        first = create_aux(logic, AUX, plugin)
         assert first.verified
         tracks = [(t["name"], t.get("type")) for t in logic.tracks()]
         assert [t for t in tracks if t not in before[0]] == [(AUX, "aux")]
-        assert plugins_on(logic, AUX) == [PLUGIN]
+        assert plugins_on(logic, AUX) == [SLOT_LABEL.get(plugin, plugin)]
 
-        again = create_aux(logic, AUX, PLUGIN)
+        again = create_aux(logic, AUX, plugin)
         assert again.detail.startswith(f"Aux {AUX} already exists")
         assert [(t["name"], t.get("type")) for t in logic.tracks()] == tracks
-        assert plugins_on(logic, AUX) == [PLUGIN]
+        assert plugins_on(logic, AUX) == [SLOT_LABEL.get(plugin, plugin)]
 
         undone = []
         for _ in range(4):
