@@ -79,7 +79,7 @@ Module: `mixhand/executor/`. Each primitive is a function that returns `ActionRe
 Plus three utilities:
 - `delete_track(track)` — LogicProMCP `logic_tracks.delete` bound by `track_ref`, then a fresh read must show exactly that track gone. Not a planner tool; it lets live tests clean up after themselves.
 - `undo(n: int = 1)` — `Cmd+Z` × n.
-- `begin_group(label) / end_group()` — records each action of a run in `logs/group.json` so `undo_group()` can reverse the whole run. Logic has no undo grouping we can drive, and volume, pan, send-level and plugin-param writes make no undo step, so every `ActionResult` carries `undo_steps` (the steps that call made) and `was` (the level a no-undo write replaced). A run that made no undo step and moved no volume or pan is not saved, so it never replaces the last run that did; a record in an older format is refused. `undo_group()` refuses unless the front project is the run's and Logic's Undo title, track list and Mixer routing all still read what they did when the run ended (a title names an operation, not whose it was), puts back each moved volume or pan on a track that existed before the run (its first write's `was`), then sends every undo step in one batch. A run that stopped on an `ExecutorError` is not undone: how far that action got is unknown, so it says what to undo by hand.
+- `begin_group(label) / end_group()` — records each action of a run in `logs/group.json` so `undo_group()` can reverse the whole run. A run is a whole `produce` conversation, follow-ups included (§6), and the group is saved again at the end of each reply. Logic has no undo grouping we can drive, and volume, pan, send-level and plugin-param writes make no undo step, so every `ActionResult` carries `undo_steps` (the steps that call made) and `was` (the level a no-undo write replaced). A run that made no undo step and moved no volume or pan is not saved, so it never replaces the last run that did; a record in an older format is refused. `undo_group()` refuses unless the front project is the run's and Logic's Undo title, track list and Mixer routing all still read what they did when the run ended (a title names an operation, not whose it was), puts back each moved volume or pan on a track that existed before the run (its first write's `was`), then sends every undo step in one batch. A run that stopped on an `ExecutorError` is not undone: how far that action got is unknown, so it says what to undo by hand.
 
 Environment assumptions (enforce in a `doctor` command, fail loudly if not met):
 - Logic Pro is frontmost, Mixer is open (`X`), window at fixed size, screen at fixed resolution
@@ -143,16 +143,16 @@ Tool schema (`planner/tools.py`) — every tool has `reason: str` as a required 
 
 Execution loop: plan → validate → execute one action → verify → feed `ActionResult` back as `tool_result` → next. An `ExecutorError` stops the run instead of going back to the model: it can leave Logic partway through an action, and the model cannot see how far. The failure is printed and recorded in the group.
 
-Conversational follow-ups ("make the doubles quieter") reuse the same loop with prior messages retained.
+Conversational follow-ups ("make the doubles quieter") reuse the same loop with prior messages retained. After each reply `produce` waits for another request; a blank line or Ctrl-D ends it. A follow-up continues the same run: one undo group and one set of validation facts (what the run created, inserted and added), with the 14-action cap counted per request. Before a follow-up, Logic's Undo title, tracks and Mixer routing must still read what the last reply left, or the run stops rather than fold an edit made by hand into its undo; when nothing has been saved yet, the run's starting point is read again instead.
 
 ## 7. CLI
 
 `mixhand` entry point (`typer`). Commands:
 - `doctor` — checks §4 environment assumptions, prints pass/fail
 - `state` — prints session JSON
-- `produce "<prompt>"` — the main loop, streamed: plan text, then a live action log (`✔ Duplicated Lead Vocal → Chorus Double L — panned −40 so the lead stays centered`)
-- `undo` — undoes the last AI action group
-- `explain` — reprints what the last run showed (plan text, each action and its reason, refusals, why it stopped) from `logs/actions.jsonl`, and says if the run never logged an end or if `undo` began on it
+- `produce "<prompt>"` — the main loop, streamed: plan text, then a live action log (`✔ Duplicated Lead Vocal → Chorus Double L — panned −40 so the lead stays centered`), then a `›` prompt for follow-ups (§6)
+- `undo` — undoes the last AI action group: a whole `produce` conversation, follow-ups included
+- `explain` — reprints what the last run showed (plan text, follow-ups, each action and its reason, refusals, why it stopped) from `logs/actions.jsonl`, and says if the run never logged an end or if `undo` began on it
 
 Look: dark terminal, monospace, minimal color (green ✔, red ✖, dim reasons). This window sits on top of Logic in the recording — it is the product's face. No spinners that hide the log.
 
