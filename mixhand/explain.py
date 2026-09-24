@@ -4,7 +4,7 @@ from datetime import datetime
 
 from mixhand.executor.actionlog import LOG_PATH
 
-SHOWN = ("planner.text", "planner.refused", "planner.action", "planner.stopped")
+SHOWN = ("planner.text", "planner.follow_up", "planner.refused", "planner.action", "planner.stopped")
 
 
 class Unexplained(Exception):

@@ -8,7 +8,7 @@ from openai.types.responses import Response
 
 from mixhand.executor import ActionResult
 from mixhand.executor.actionlog import log
-from mixhand.executor.group import Group, begin_group, end_group, record
+from mixhand.executor.group import Group, begin_group, end_group, record, resume_group
 from mixhand.executor.logicpro import LogicPro
 from mixhand.executor.primitives import (
     add_send,
@@ -53,18 +53,27 @@ def produce(
     session: Session,
     text: Callable[[str], None],
     line: Callable[..., None],
+    follow_up: Callable[[], str | None],
 ) -> bool:
     model = os.environ.get(MODEL_ENV, "").strip() or DEFAULT_MODEL
     plan = Plan.of(session)
     items: list = [{"role": "user", "content": f"{prompt}\n\nThe session, read from Logic just now:\n{as_json(session)}"}]
     group = begin_group(prompt, session.project.path, [c.name for c in session.tracks])
     try:
-        try:
-            _run(logic, client, model, plan, group, items, text, line)
-        except BaseException as e:
-            end_group(logic, group, failed=None if isinstance(e, (PlannerError, openai.APIError)) else _why(e))
-            raise
-        return end_group(logic, group)
+        while True:
+            try:
+                _run(logic, client, model, plan, group, items, text, line)
+            except BaseException as e:
+                end_group(logic, group, failed=None if isinstance(e, (PlannerError, openai.APIError)) else _why(e))
+                raise
+            saved = end_group(logic, group)
+            prompt = follow_up()
+            if prompt is None:
+                return saved
+            resume_group(logic, group)
+            log("planner.follow_up", run=group.run, text=prompt)
+            plan.actions = 0
+            items.append({"role": "user", "content": prompt})
     except BaseException as e:
         log("planner.stopped", run=group.run, detail=_why(e))
         raise

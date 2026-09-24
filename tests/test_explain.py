@@ -7,13 +7,14 @@ from test_produce import Client, call, reply
 from test_validate import session
 from typer.testing import CliRunner
 
-from mixhand.cli import NOTHING_TO_UNDO, app
+from mixhand.cli import FOLLOW_UP, NOTHING_TO_UNDO, app
 from mixhand.executor import ActionResult, ExecutorError
 from mixhand.executor.actionlog import LOG_PATH
 from mixhand.planner import loop
 
 TRACKS = ["Lead Vocal", "Double", "Adlib", "Verb"]
 NO_END = "? The log has no end for this run: it is still going, or it stopped before it could write one."
+FINISHED = [FOLLOW_UP, "› "]
 
 
 @pytest.fixture
@@ -44,9 +45,9 @@ def logic(tmp_path, monkeypatch):
     return primitive
 
 
-def produce(monkeypatch, *replies):
+def produce(monkeypatch, *replies, typed=""):
     monkeypatch.setattr("mixhand.cli.openai.OpenAI", lambda: Client(*replies))
-    return CliRunner().invoke(app, ["produce", "make it bigger"])
+    return CliRunner().invoke(app, ["produce", "make it bigger"], input=typed + "\n")
 
 
 def explain():
@@ -64,18 +65,30 @@ def test_explain_reprints_exactly_what_produce_showed_and_produce_shows_no_json(
         reply(call("set_pan", 2, track="Lead Vox", value=-40)),
         reply(call("set_pan", 3, track="Double", value=-40)),
         reply("Doubled and panned."),
+        reply(call("set_pan", 4, track="Double", value=-60)),
+        reply("Wider."),
+        typed="pan the double wider\n",
     )
     assert shown.exit_code == 0, shown.output
     lines = shown.stdout.splitlines()
     assert lines[:2] == ["I'll double the lead, take 1.", "✔ Duplicated Lead Vocal → Double — reason 1"]
     assert lines[2].startswith("✖ Refused set_pan: there is no track named 'Lead Vox'")
-    assert lines[3:] == ["✔ Panned Double to -40 — reason 3", "Doubled and panned.", "mixhand undo reverses this run."]
+    assert lines[3:] == [
+        "✔ Panned Double to -40 — reason 3",
+        "Doubled and panned.",
+        FOLLOW_UP,
+        "› pan the double wider",
+        "✔ Panned Double to -60 — reason 4",
+        "Wider.",
+        *FINISHED,
+        "mixhand undo reverses this run.",
+    ]
 
     explained = explain()
     assert explained.exit_code == 0, explained.output
     header, *replayed = explained.stdout.splitlines()
     assert header.startswith("Last run, ") and header.endswith(": make it bigger")
-    assert replayed == lines[:-1]
+    assert replayed == lines[:-3]
 
 
 def test_an_undone_run_says_undo_began_on_it(logic, monkeypatch):
@@ -89,7 +102,7 @@ def test_an_undone_run_says_undo_began_on_it(logic, monkeypatch):
 def test_an_undo_of_an_earlier_run_is_not_pinned_on_the_last_one(logic, monkeypatch):
     produce(monkeypatch, doubled(), reply("Done."))
     idle = produce(monkeypatch, reply("Nothing needs changing."))
-    assert idle.stdout.splitlines() == ["Nothing needs changing.", NOTHING_TO_UNDO]
+    assert idle.stdout.splitlines() == ["Nothing needs changing.", *FINISHED, NOTHING_TO_UNDO]
     assert CliRunner().invoke(app, ["undo"]).exit_code == 0
 
     explained = explain().stdout.splitlines()
