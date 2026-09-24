@@ -47,6 +47,14 @@ EMPTY_SEND = "send button"
 SEND_DB_MIN = -60.0
 SEND_DB_MAX = 0.0
 SEND_STEPS = 300
+EQ_BANDS = ("Peak 1", "Peak 2", "Peak 3", "Peak 4")
+# Below 100 Hz Logic shows a decimal (98.5 Hz) but LogicProMCP targets 99 as "99 Hz", so it never matches.
+EQ_HZ_MIN = 100
+# LogicProMCP's walk first steps up, so a band left at the 20000 Hz ceiling can never move again.
+EQ_HZ_MAX = 19000
+EQ_DB_MIN = -24.0
+EQ_DB_MAX = 24.0
+EQ_GAIN_RAW_AT_0_DB = 240
 
 
 def track_index(logic: LogicPro, track: str) -> int:
@@ -239,6 +247,89 @@ def _move(logic: LogicPro, command: str, track: str, contract: float, target: in
     if not landed:
         raise ExecutorError(f"{command} on {track!r} landed at raw {raw:g}, not within {LANDS_WITHIN_RAW} of {target}")
     return round(raw)
+
+
+def set_plugin_param(logic: LogicPro, track: str, plugin: str, param: str, value: float) -> ActionResult:
+    command, params, wanted, unit = _plugin_param(plugin, param, value)
+    project = logic.require_project()
+    index, entry = _track(logic, track)
+    if not entry.get("track_ref"):
+        raise ExecutorError(f"Logic gave no track_ref for {track!r}, so the write could not be bound to it")
+    found = [s for s in inserts(logic, index, track) if s["name"] == plugin]
+    if len(found) != 1:
+        raise ExecutorError(f"{track!r} has {len(found)} {plugin} plugins, not one")
+    log("set_plugin_param.start", track=track, plugin=plugin, param=param, requested=value, slot=found[0]["insert"])
+    try:
+        result = logic.call(
+            "logic_plugins",
+            command,
+            track=index,
+            insert=found[0]["insert"],
+            target_ref=entry["track_ref"],
+            mode="duplicate_applyback",
+            project_expected_path=project,
+            **params,
+        )
+    except ExecutorError as e:
+        log("set_plugin_param.refused", track=track, plugin=plugin, param=param, requested=value, error=e.payload.get("error"))
+        raise ExecutorError(f"{e}; {_left_as(e.payload, track, plugin, param)}", e.payload) from e
+    shown = result.get("observed_display")
+    confirmed = result.get("state") == "A" and result.get("verified") is True and shown == wanted
+    log(
+        "set_plugin_param.done",
+        track=track,
+        plugin=plugin,
+        param=param,
+        requested=value,
+        shown=shown,
+        verified=confirmed,
+        trace_id=result.get("trace_id"),
+    )
+    if not confirmed:
+        raise ExecutorError(
+            f"{track}'s {plugin} {param} reads {shown!r}, not {wanted!r} (state {result.get('state')}); "
+            "check it in the plugin, undo does not restore it"
+        )
+    return ActionResult(
+        ok=True,
+        detail=f"Set {track}'s {plugin} {param} to {shown} (asked {value:g} {unit}; undo does not restore it)",
+        verified=True,
+    )
+
+
+def _plugin_param(plugin: str, param: str, value: float) -> tuple[str, dict, str, str]:
+    band, _, kind = param.rpartition(" ")
+    if (plugin, param) == ("Compressor", "Threshold"):
+        if value != round(value) or not 0 <= value <= 100:
+            raise ExecutorError(f"Compressor Threshold is a whole percent from 0 to 100, not {value:g}")
+        percent = round(value)
+        return "set_param_verified", {"plugin": "Compressor", "param": "threshold", "value": percent}, f"{percent} %", "%"
+    if plugin == "Channel EQ" and band in EQ_BANDS and kind == "Frequency":
+        if value != round(value) or not EQ_HZ_MIN <= value <= EQ_HZ_MAX:
+            raise ExecutorError(f"Channel EQ {param} is a whole number of Hz from {EQ_HZ_MIN} to {EQ_HZ_MAX}, not {value:g}")
+        hz = round(value)
+        return "set_eq_band_verified", {"band": band, "parameter": kind, "value": hz, "unit": "Hz"}, f"{hz} Hz", "Hz"
+    if plugin == "Channel EQ" and band in EQ_BANDS and kind == "Gain":
+        if not EQ_DB_MIN <= value <= EQ_DB_MAX:
+            raise ExecutorError(f"Channel EQ {param} {value:g} dB is outside {EQ_DB_MIN:g}..{EQ_DB_MAX:g} dB")
+        tenths = round(value * 10)
+        shown = "0.0 dB" if tenths == 0 else f"{tenths / 10:+.1f} dB"
+        params = {"band": band, "parameter": kind, "value": EQ_GAIN_RAW_AT_0_DB + tenths, "unit": "raw_ax_value"}
+        return "set_eq_band_verified", params, shown, "dB"
+    raise ExecutorError(
+        f"param not mapped: {plugin} {param}; Mixhand sets only Compressor Threshold "
+        f"and Channel EQ {', '.join(EQ_BANDS)} Frequency and Gain"
+    )
+
+
+def _left_as(payload: dict, track: str, plugin: str, param: str) -> str:
+    if payload.get("write_attempted") is False:
+        return "nothing changed"
+    if payload.get("rollback_succeeded") is True and payload.get("last_observed_display"):
+        return f"Logic stopped at {payload['last_observed_display']}, and it was put back where it was"
+    if payload.get("rollback_succeeded") is True:
+        return "it was put back where it was"
+    return f"{track}'s {plugin} {param} may have moved, and undo does not restore it: check it in the plugin"
 
 
 def undo(logic: LogicPro, n: int = 1) -> ActionResult:
