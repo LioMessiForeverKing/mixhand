@@ -11,14 +11,17 @@ from mixhand.executor.logicpro import LogicPro
 from mixhand.state.models import Selection, as_json
 from mixhand.state.reader import read_session
 
-LIVE_TRANSPORT = {"source": "ax_live", "data": {"state": {"tempo": 92}}}
+FRESH = "2999-01-01T00:00:00.000Z"
+STALE = "2000-01-01T00:00:00.000Z"
+LIVE_TRANSPORT = {"source": "ax_live", "fetched_at": FRESH, "data": {"state": {"tempo": 92}}}
 SAVED_INFO = {"data": {"filePath": PROJECT, "timeSignature": "4/4"}}
 
 
-def listing(*tracks, epoch=0):
+def listing(*tracks, epoch=0, fetched_at=FRESH):
     return {
         "readable": True,
         "source": "ax_live",
+        "fetched_at": fetched_at,
         "data": [
             {
                 "id": i,
@@ -156,14 +159,19 @@ def test_a_plugin_whose_name_cannot_be_read_is_refused_rather_than_dropped(fake,
 
 
 @pytest.mark.parametrize(
-    "transport",
-    [{"source": "project_file", "data": {"state": {"tempo": 120}}}, {"source": "ax_live", "data": {"state": {}}}],
+    ("tracks", "transport", "refusal"),
+    [
+        ([listing(*TRACKS, fetched_at=STALE)], LIVE_TRANSPORT, "logic://tracks gave no live reading"),
+        (None, {**LIVE_TRANSPORT, "fetched_at": STALE}, "logic://transport/state gave no live reading"),
+        (None, {**LIVE_TRANSPORT, "source": "project_file"}, "logic://transport/state gave no live reading"),
+        (None, {**LIVE_TRANSPORT, "data": {"state": {}}}, "gave no tempo"),
+    ],
 )
-def test_a_tempo_that_never_goes_live_is_refused(fake, mixer, monkeypatch, transport):
-    monkeypatch.setattr("mixhand.state.reader.TRACKS_READABLE_WITHIN_S", 0.2)
-    serve(fake, transport=transport)
+def test_a_reading_cached_before_state_started_is_refused(fake, mixer, monkeypatch, tracks, transport, refusal):
+    monkeypatch.setattr("mixhand.state.reader.FRESH_WITHIN_S", 0.2)
+    serve(fake, tracks=tracks, transport=transport)
 
-    with pytest.raises(ExecutorError, match="tempo was not readable"):
+    with pytest.raises(ExecutorError, match=refusal):
         read()
 
 

@@ -1,22 +1,28 @@
 import time
+from datetime import datetime, timezone
 
 from mixhand.executor import ExecutorError
 from mixhand.executor.fader import DB_AT_RAW, pan_at_contract, raw_at_contract
-from mixhand.executor.logicpro import POLL_S, TRACKS_READABLE_WITHIN_S, LogicPro
+from mixhand.executor.logicpro import POLL_S, LogicPro
 from mixhand.executor.primitives import INSERTABLE, PLUGIN_MENU, SLOT_LABEL, Strip, _bus, _strip, inserts, routes
 from mixhand.state.models import Channel, Project, Selection, Send, Session
 
+FRESH_WITHIN_S = 10.0
 PLUGIN_AT_LABEL = {label: plugin for plugin, label in SLOT_LABEL.items()}
 
 
 def read_session(logic: LogicPro, key: str | None = None, selection: Selection | None = None) -> Session:
     path = logic.require_project()
-    before = logic.tracks()
+    started = datetime.now(timezone.utc)
+    before = _fresh(logic, "logic://tracks", started)["data"]
     strips = routes()
-    tempo = _tempo(logic)
+    tempo = ((_fresh(logic, "logic://transport/state", started).get("data") or {}).get("state") or {}).get("tempo")
+    if not isinstance(tempo, (int, float)):
+        raise ExecutorError("Logic's transport gave no tempo")
     time_sig = (logic.read("logic://project/info").get("data") or {}).get("timeSignature")
     channels = [_channel(logic, index, track, strips) for index, track in enumerate(before)]
-    if _identities(logic.tracks()) != _identities(before):
+    after = _fresh(logic, "logic://tracks", datetime.now(timezone.utc))["data"]
+    if _identities(after) != _identities(before):
         raise ExecutorError("Logic's tracks changed while the session was read; run mixhand state again")
     return Session(
         project=Project(path=path, tempo=tempo, time_sig_saved=time_sig, key=key),
@@ -31,15 +37,17 @@ def _identities(tracks: list[dict]) -> list[tuple[str, str | None]]:
     return [(t["name"], t.get("track_ref")) for t in tracks]
 
 
-def _tempo(logic: LogicPro) -> float:
-    deadline = time.monotonic() + TRACKS_READABLE_WITHIN_S
+# LogicProMCP serves these from a poll cache that lags a write by up to one poll, about 3.5 s.
+def _fresh(logic: LogicPro, uri: str, since: datetime) -> dict:
+    deadline = time.monotonic() + FRESH_WITHIN_S
     while True:
-        transport = logic.read("logic://transport/state")
-        tempo = ((transport.get("data") or {}).get("state") or {}).get("tempo")
-        if transport.get("source") == "ax_live" and isinstance(tempo, (int, float)):
-            return tempo
+        reply = logic.read(uri)
+        fetched = reply.get("fetched_at")
+        live = reply.get("source") == "ax_live" and reply.get("readable", True)
+        if live and fetched and datetime.fromisoformat(fetched) >= since:
+            return reply
         if time.monotonic() >= deadline:
-            raise ExecutorError(f"Logic's tempo was not readable within {TRACKS_READABLE_WITHIN_S:g}s")
+            raise ExecutorError(f"{uri} gave no live reading taken after {since:%H:%M:%S} within {FRESH_WITHIN_S:g}s")
         time.sleep(POLL_S)
 
 
