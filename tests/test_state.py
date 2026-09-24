@@ -57,7 +57,7 @@ MIXER = "\n".join(
         strip("Stereo Out", inputs=()),
     ]
 )
-INVENTORIES = [slots("Compressor", None, "Channel EQ"), slots(None), slots("St-Delay")]
+INVENTORIES = [slots("Bus 4", "Compressor", None, "Channel EQ"), slots("Bus 4", "Bus 3", None), slots("St-Delay")]
 
 
 @pytest.fixture

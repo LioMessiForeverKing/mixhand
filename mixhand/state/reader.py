@@ -65,7 +65,7 @@ def _channel(logic: LogicPro, index: int, track: dict, strips: list[Strip]) -> C
 
 
 def _plugins(logic: LogicPro, index: int, track: str) -> list[str]:
-    occupied = [s for s in inserts(logic, index, track) if s["occupied"]]
+    occupied = [s for s in inserts(logic, index, track) if s["occupied"] and _bus(s.get("name") or "") is None]
     if any(not s.get("name") for s in occupied):
         raise ExecutorError(f"an insert on {track!r} holds a plugin whose name could not be read")
     return [PLUGIN_AT_LABEL.get(s["name"], s["name"]) for s in occupied]
