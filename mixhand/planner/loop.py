@@ -7,6 +7,7 @@ import openai
 from openai.types.responses import Response
 
 from mixhand.executor import ActionResult
+from mixhand.executor.actionlog import log
 from mixhand.executor.group import Group, begin_group, end_group, record
 from mixhand.executor.logicpro import LogicPro
 from mixhand.executor.primitives import (
@@ -51,21 +52,20 @@ def produce(
     prompt: str,
     session: Session,
     text: Callable[[str], None],
-    line: Callable[[str, str], None],
-) -> None:
+    line: Callable[..., None],
+) -> bool:
     model = os.environ.get(MODEL_ENV, "").strip() or DEFAULT_MODEL
     plan = Plan.of(session)
     items: list = [{"role": "user", "content": f"{prompt}\n\nThe session, read from Logic just now:\n{as_json(session)}"}]
     group = begin_group(prompt, session.project.path, [c.name for c in session.tracks])
     try:
         _run(logic, client, model, plan, group, items, text, line)
-    except (PlannerError, openai.APIError):
-        end_group(logic, group)
-        raise
     except BaseException as e:
-        end_group(logic, group, failed=str(e) or type(e).__name__)
+        why = str(e) or type(e).__name__
+        log("planner.stopped", run=group.run, detail=why)
+        end_group(logic, group, failed=None if isinstance(e, (PlannerError, openai.APIError)) else why)
         raise
-    end_group(logic, group)
+    return end_group(logic, group)
 
 
 def _run(
@@ -76,11 +76,11 @@ def _run(
     group: Group,
     items: list,
     text: Callable[[str], None],
-    line: Callable[[str, str], None],
+    line: Callable[..., None],
 ) -> None:
     refused = 0
     while True:
-        response = _turn(client, model, items, text)
+        response = _turn(client, model, items, text, group.run)
         if response.status != "completed":
             reason = response.incomplete_details.reason if response.incomplete_details else response.status
             raise PlannerError(f"the model's reply stopped short ({reason}), so none of its actions were run")
@@ -96,7 +96,9 @@ def _run(
                 validate(call.name, args, plan)
             except InvalidAction as e:
                 refused += 1
-                line("fail", f"Refused {call.name}: {e}")
+                detail = f"Refused {call.name}: {e}"
+                log("planner.refused", run=group.run, tool=call.name, detail=detail)
+                line("fail", detail)
                 if refused > RETRIES:
                     raise PlannerError(f"the model gave {refused} invalid actions in a row, so the run stopped") from e
                 items.append({"type": "function_call_output", "call_id": call.call_id, "output": f"Refused: {e}"})
@@ -106,7 +108,8 @@ def _run(
             result = EXECUTE[call.name](logic, **args)
             record(group, call.name, args, result)
             plan.apply(call.name, args, result)
-            line("pass", f"{result.detail} — {reason}")
+            log("planner.action", run=group.run, tool=call.name, args=args, detail=result.detail, reason=reason)
+            line("pass", result.detail, reason)
             items.append({"type": "function_call_output", "call_id": call.call_id, "output": result.detail})
 
 
@@ -117,20 +120,26 @@ def _arguments(raw: str) -> object:
         raise InvalidAction(f"the arguments were not valid JSON: {raw!r}") from e
 
 
-def _turn(client: openai.OpenAI, model: str, items: list, text: Callable[[str], None]) -> Response:
-    with client.responses.stream(
-        model=model,
-        instructions=SYSTEM_PROMPT.read_text(),
-        input=items,
-        tools=TOOLS,
-        parallel_tool_calls=False,
-    ) as stream:
-        final = None
-        for event in stream:
-            if event.type == "response.output_text.delta":
-                text(event.delta)
-            elif event.type in FINAL_EVENTS:
-                final = event.response
+def _turn(client: openai.OpenAI, model: str, items: list, text: Callable[[str], None], run: str) -> Response:
+    shown: list[str] = []
+    try:
+        with client.responses.stream(
+            model=model,
+            instructions=SYSTEM_PROMPT.read_text(),
+            input=items,
+            tools=TOOLS,
+            parallel_tool_calls=False,
+        ) as stream:
+            final = None
+            for event in stream:
+                if event.type == "response.output_text.delta":
+                    text(event.delta)
+                    shown.append(event.delta)
+                elif event.type in FINAL_EVENTS:
+                    final = event.response
+    finally:
+        if shown:
+            log("planner.text", run=run, text="".join(shown))
     if final is None:
         raise PlannerError("the model's reply ended without a final response, so none of its actions were run")
     return final
