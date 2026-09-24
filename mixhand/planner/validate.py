@@ -26,6 +26,7 @@ class Plan:
     session: Session
     tracks: set[str]
     sends: set[tuple[str, str]]
+    plugins: dict[str, list[str]]
     created: set[str] = field(default_factory=set)
     inserted: set[tuple[str, str]] = field(default_factory=set)
     actions: int = 0
@@ -36,6 +37,7 @@ class Plan:
             session=session,
             tracks={c.name for c in session.tracks},
             sends={(c.name, s.aux) for c in session.tracks for s in c.sends if s.aux},
+            plugins={c.name: list(c.plugins) for c in session.tracks},
         )
 
     def apply(self, tool: str, args: dict, result: ActionResult) -> None:
@@ -44,8 +46,12 @@ class Plan:
             name = args.get("new_name") or args["name"]
             self.tracks.add(name)
             self.created.add(name)
+        if tool == "duplicate_track":
+            self.plugins[args["new_name"]] = list(self.plugins.get(args["source"], []))
         if tool in ("insert_plugin", "create_aux") and result.undo_steps:
-            self.inserted.add((args.get("track") or args["name"], args["plugin"]))
+            track = args.get("track") or args["name"]
+            self.inserted.add((track, args["plugin"]))
+            self.plugins.setdefault(track, []).append(args["plugin"])
         if tool == "add_send":
             self.sends.add((args["track"], args["aux"]))
 
@@ -91,6 +97,11 @@ def _bounds(tool: str, args: dict, plan: Plan) -> None:
             raise InvalidAction(
                 f"{args['track']} sits at {now:g} dB, below the {VOLUME_DB_MIN:g} dB Mixhand can set, so undo could not put it back"
             )
+    if tool == "insert_plugin" and plan.plugins.get(args["track"]) and args["plugin"] not in plan.plugins[args["track"]]:
+        raise InvalidAction(
+            f"{args['track']} already holds {', '.join(plan.plugins[args['track']])}, and Mixhand can put only one "
+            "plugin on a track (SETUP.md); choose which one this track needs"
+        )
     if tool == "set_pan" and not PAN_MIN <= args["value"] <= PAN_MAX:
         raise InvalidAction(f"pan {args['value']} is outside {PAN_MIN}..{PAN_MAX}")
     if tool == "add_send" and args["track"] == args["aux"]:

@@ -135,3 +135,17 @@ def test_the_run_stops_taking_actions_at_the_limit():
         plan.apply("set_pan", {"track": "Adlib", "value": 0}, done(0))
     with pytest.raises(InvalidAction, match=f"at most {MAX_ACTIONS} actions"):
         validate("set_pan", {"track": "Adlib", "value": 0, "reason": WHY}, plan)
+
+
+def test_a_second_plugin_on_a_track_is_refused_because_the_executor_cannot_insert_one():
+    plan = Plan.of(session(channel("Lead Vocal", plugins=["Compressor"]), channel("Adlib")))
+    with pytest.raises(InvalidAction, match="only one plugin on a track"):
+        validate("insert_plugin", {"track": "Lead Vocal", "plugin": "Channel EQ", "reason": WHY}, plan)
+    validate("insert_plugin", {"track": "Lead Vocal", "plugin": "Compressor", "reason": WHY}, plan)
+
+    plan.apply("insert_plugin", {"track": "Adlib", "plugin": "Channel EQ"}, done(1))
+    plan.apply("duplicate_track", {"source": "Lead Vocal", "new_name": "Double"}, done(2))
+    plan.apply("create_aux", {"name": "Delay", "plugin": "Stereo Delay"}, done(4))
+    for track in ("Adlib", "Double", "Delay"):
+        with pytest.raises(InvalidAction, match="only one plugin on a track"):
+            validate("insert_plugin", {"track": track, "plugin": "Gain", "reason": WHY}, plan)

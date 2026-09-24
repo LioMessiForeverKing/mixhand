@@ -46,7 +46,7 @@ TOOLS = [
     ),
     _tool(
         "insert_plugin",
-        "Put a stock plugin in the track's first empty insert slot. A plugin already on the track is left as it is.",
+        "Put a stock plugin on a track that holds none yet: Mixhand can put only one plugin on a track. Asking again for the plugin already there changes nothing.",
         track=TRACK,
         plugin={"type": "string", "enum": PLUGINS},
     ),
