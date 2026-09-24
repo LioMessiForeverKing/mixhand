@@ -14,7 +14,10 @@ PLUGIN_AT_LABEL = {label: plugin for plugin, label in SLOT_LABEL.items()}
 def read_session(logic: LogicPro, key: str | None = None, selection: Selection | None = None) -> Session:
     path = logic.require_project()
     started = datetime.now(timezone.utc)
-    before = _fresh(logic, "logic://tracks", started)["data"]
+    listing = _fresh(logic, "logic://tracks", started)
+    if listing.get("complete") is False:
+        raise ExecutorError(f"Logic's track list is incomplete ({listing.get('reason')}); expand every track stack")
+    before = listing["data"]
     strips = routes()
     tempo = ((_fresh(logic, "logic://transport/state", started).get("data") or {}).get("state") or {}).get("tempo")
     if not isinstance(tempo, (int, float)):
@@ -24,11 +27,13 @@ def read_session(logic: LogicPro, key: str | None = None, selection: Selection |
     after = _fresh(logic, "logic://tracks", datetime.now(timezone.utc))["data"]
     if _identities(after) != _identities(before):
         raise ExecutorError("Logic's tracks changed while the session was read; run mixhand state again")
+    logic.require_project()
+    kinds = [t.get("type") for t in before]
     return Session(
         project=Project(path=path, tempo=tempo, time_sig_saved=time_sig, key=key),
         selection=selection,
-        tracks=[c for c in channels if c.bus is None],
-        auxes=[c for c in channels if c.bus is not None],
+        tracks=[c for c, kind in zip(channels, kinds) if kind != "aux"],
+        auxes=[c for c, kind in zip(channels, kinds) if kind == "aux"],
         available_plugins=[*INSERTABLE, *PLUGIN_MENU],
     )
 
@@ -53,6 +58,9 @@ def _fresh(logic: LogicPro, uri: str, since: datetime) -> dict:
 
 def _channel(logic: LogicPro, index: int, track: dict, strips: list[Strip]) -> Channel:
     name = track["name"]
+    # LogicProMCP reports an unreadable pan knob as 0.0, which no real pan maps to; centre is 1/127.
+    if track["pan"] == 0.0:
+        raise ExecutorError(f"Logic read no pan knob on {name!r}; turn on Pan in Track > Configure Track Header")
     strip = _strip(strips, name)
     return Channel(
         name=name,

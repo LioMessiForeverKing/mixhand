@@ -3,7 +3,7 @@ import os
 import pytest
 
 from mixhand.executor.logicpro import LogicPro
-from mixhand.executor.primitives import set_pan, set_volume
+from mixhand.executor.primitives import VOLUME_DB_MAX, VOLUME_DB_MIN, set_pan, set_volume
 from mixhand.state.reader import read_session
 
 pytestmark = [
@@ -20,11 +20,15 @@ def landed(detail):
 
 
 @pytest.fixture(scope="module", autouse=True)
-def restore_unity_and_centre():
+def restore_what_was_there():
+    with LogicPro.from_env() as logic:
+        [lead] = [t for t in read_session(logic).tracks if t.name == TRACK]
+    if not VOLUME_DB_MIN <= lead.volume_db <= VOLUME_DB_MAX:
+        pytest.fail(f"{TRACK} is at {lead.volume_db} dB, which set_volume could not restore; move it within range first")
     yield
     with LogicPro.from_env() as logic:
-        set_volume(logic, TRACK, 0.0)
-        set_pan(logic, TRACK, 0)
+        set_volume(logic, TRACK, lead.volume_db)
+        set_pan(logic, TRACK, lead.pan)
 
 
 @pytest.mark.parametrize(("db", "pan"), SETTINGS)

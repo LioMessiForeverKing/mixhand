@@ -29,8 +29,9 @@ def listing(*tracks, epoch=0, fetched_at=FRESH):
                 "track_ref": f"trk_{epoch}_{i}",
                 "volume": volume_contract(raw_nearest(db)) if db is not None else 0.0,
                 "pan": pan_contract(pan),
+                "type": kind,
             }
-            for i, (name, db, pan) in enumerate(tracks)
+            for i, (name, db, pan, kind) in enumerate(tracks)
         ],
     }
 
@@ -47,7 +48,7 @@ def slots(*names):
     }
 
 
-TRACKS = [("Lead Vocal", -6.0, -40), ("Adlib", -3.2, 25), ("Delay", 0.0, 0)]
+TRACKS = [("Lead Vocal", -6.0, -40, "unknown"), ("Adlib", -3.2, 25, "unknown"), ("Delay", 0.0, 0, "aux")]
 MIXER = "\n".join(
     [
         strip("Lead Vocal", sends=("Bus 4",)),
@@ -124,7 +125,7 @@ def test_a_send_to_a_bus_two_auxes_listen_on_names_neither(fake, mixer):
 
 
 def test_a_fader_all_the_way_down_prints_as_minus_infinity_not_invalid_json(fake, mixer):
-    serve(fake, tracks=[listing(("Lead Vocal", None, 0))], inventories=[slots()])
+    serve(fake, tracks=[listing(("Lead Vocal", None, 0, "unknown"))], inventories=[slots()])
     mixer["routes"] = strip("Lead Vocal")
 
     assert read()["tracks"][0]["volume_db"] == "-inf"
@@ -133,6 +134,46 @@ def test_a_fader_all_the_way_down_prints_as_minus_infinity_not_invalid_json(fake
 def test_every_fader_and_pan_position_reads_back_as_the_one_that_was_set():
     assert [raw_at_contract(volume_contract(raw)) for raw in range(RAW_MAX + 1)] == list(range(RAW_MAX + 1))
     assert [pan_at_contract(pan_contract(pan)) for pan in range(-64, 64)] == list(range(-64, 64))
+
+
+def test_an_aux_is_known_by_its_type_not_by_a_bus_on_its_input(fake, mixer):
+    serve(fake, tracks=[listing(("Print", 0.0, 0, "unknown"), ("Verb", 0.0, 0, "aux"))], inventories=[slots(), slots()])
+    mixer["routes"] = "\n".join([strip("Print", inputs=("Bus 2",)), strip("Verb")])
+    session = read()
+
+    assert [(c["name"], c["bus"]) for c in session["tracks"]] == [("Print", 2)]
+    assert [(c["name"], c["bus"]) for c in session["auxes"]] == [("Verb", None)]
+
+
+def test_a_track_list_logic_calls_incomplete_is_refused(fake, mixer):
+    serve(fake, tracks=[{**listing(*TRACKS), "complete": False, "reason": "collapsed_track_stack"}])
+
+    with pytest.raises(ExecutorError, match="incomplete \\(collapsed_track_stack\\)"):
+        read()
+
+
+def test_a_pan_knob_logic_could_not_read_is_refused_rather_than_printed_as_centre(fake, mixer):
+    unread = listing(*TRACKS)
+    unread["data"][1]["pan"] = 0.0
+    serve(fake, tracks=[unread])
+
+    with pytest.raises(ExecutorError, match="no pan knob on 'Adlib'"):
+        read()
+
+
+def test_a_project_switched_during_the_read_is_refused(fake, mixer):
+    other = {"data": {"filePath": "/tmp/Other.logicx", "timeSignature": "4/4"}}
+    fake.serve(
+        resources={
+            "logic://project/info": [SAVED_INFO, SAVED_INFO, other],
+            "logic://tracks": [listing(*TRACKS)],
+            "logic://transport/state": [LIVE_TRANSPORT],
+        },
+        tools={"logic_plugins.get_inventory": list(INVENTORIES)},
+    )
+
+    with pytest.raises(ExecutorError, match="Other.logicx"):
+        read()
 
 
 def test_tracks_reissued_while_reading_are_refused_rather_than_mixed(fake, mixer):
