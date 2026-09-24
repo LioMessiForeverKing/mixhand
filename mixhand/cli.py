@@ -61,12 +61,15 @@ def produce(
     selection = _selection(start_bar, end_bar)
     if not prompt.strip():
         raise typer.BadParameter("say what you want done")
+    started = False
     try:
+        client = openai.OpenAI()
         with LogicPro.from_env() as logic:
             session = read_session(logic, key=(key or "").strip() or None, selection=selection)
+            started = True
             loop.produce(
                 logic,
-                openai.OpenAI(),
+                client,
                 prompt.strip(),
                 session,
                 text=lambda chunk: typer.echo(chunk, nl=False),
@@ -74,11 +77,13 @@ def produce(
             )
     except ExecutorError as e:
         typer.echo(f"\n{MARKS['fail']} {e}", err=True)
-        typer.echo("mixhand undo says what the finished actions left to undo.", err=True)
+        if started:
+            typer.echo("mixhand undo says what the finished actions left to undo.", err=True)
         raise typer.Exit(1)
-    except (loop.PlannerError, openai.APIError) as e:
+    except (loop.PlannerError, openai.OpenAIError) as e:
         typer.echo(f"\n{MARKS['fail']} {e}", err=True)
-        typer.echo("mixhand undo reverses what was done.", err=True)
+        if started:
+            typer.echo("mixhand undo reverses what was done.", err=True)
         raise typer.Exit(1)
     typer.echo(typer.style("\nmixhand undo reverses this run.", dim=True))
 
