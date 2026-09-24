@@ -1,4 +1,5 @@
 import json
+import uuid
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -32,6 +33,7 @@ class Group:
     tracks_after: list[str] | None = None
     routes_after: str | None = None
     failed: str | None = None
+    run: str | None = None
 
     def save(self) -> None:
         GROUP_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -39,8 +41,8 @@ class Group:
 
 
 def begin_group(label: str, project: str, tracks_before: list[str]) -> Group:
-    group = Group(label=label, project=project, tracks_before=tracks_before, undo_title_before=undo_title())
-    log("group.begin", label=label, undo_title=group.undo_title_before)
+    group = Group(label=label, project=project, tracks_before=tracks_before, undo_title_before=undo_title(), run=uuid.uuid4().hex)
+    log("group.begin", run=group.run, label=label, undo_title=group.undo_title_before)
     return group
 
 
@@ -51,17 +53,18 @@ def record(group: Group, tool: str, args: dict, result: ActionResult) -> None:
 
 
 # A run that changed nothing undo tracks is not saved, so it cannot replace the last run that did.
-def end_group(logic: LogicPro, group: Group, failed: str | None = None) -> None:
+def end_group(logic: LogicPro, group: Group, failed: str | None = None) -> bool:
     if not _changed(group):
-        log("group.end", label=group.label, actions=len(group.actions), failed=failed, saved=False)
-        return
+        log("group.end", run=group.run, label=group.label, actions=len(group.actions), failed=failed, saved=False)
+        return False
     group.failed = failed
     if failed is None:
         group.undo_title_after = undo_title()
         group.tracks_after = logic.track_names()
         group.routes_after = read_routes()
     group.save()
-    log("group.end", label=group.label, actions=len(group.actions), failed=failed, undo_title=group.undo_title_after)
+    log("group.end", run=group.run, label=group.label, actions=len(group.actions), failed=failed, saved=True, undo_title=group.undo_title_after)
+    return True
 
 
 def _changed(group: Group) -> bool:
@@ -99,7 +102,7 @@ def undo_group(logic: LogicPro) -> Iterator[tuple[str, str]]:
         )
     created = set(now[1]) - set(group.tracks_before)
     GROUP_PATH.unlink()
-    log("group.undo.start", label=group.label)
+    log("group.undo.start", run=group.run, label=group.label)
     for action in _first_writes(group.actions):
         yield _restore(logic, action, created)
     steps = sum(a.undo_steps for a in group.actions)

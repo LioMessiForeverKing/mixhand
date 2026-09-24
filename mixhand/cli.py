@@ -2,12 +2,15 @@ import openai
 import typer
 
 from mixhand import doctor as doctor_checks
+from mixhand import explain as explain_log
 from mixhand.executor import ExecutorError
 from mixhand.executor.group import undo_group
 from mixhand.executor.logicpro import LogicPro
 from mixhand.planner import loop
 from mixhand.state.models import Selection, as_json
 from mixhand.state.reader import read_session
+
+NOTHING_TO_UNDO = "mixhand undo has nothing from this run to reverse."
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -16,6 +19,25 @@ MARKS = {
     "fail": typer.style("✖", fg="red"),
     "unknown": typer.style("?", fg="yellow"),
 }
+
+
+class Out:
+    def __init__(self) -> None:
+        self.fresh = True
+
+    def text(self, chunk: str) -> None:
+        if chunk:
+            typer.echo(chunk, nl=False)
+            self.fresh = chunk.endswith("\n")
+
+    def line(self, status: str, detail: str, reason: str | None = None) -> None:
+        self.end_line()
+        typer.echo(f"{MARKS[status]} {detail}" + (typer.style(f" — {reason}", dim=True) if reason else ""))
+
+    def end_line(self) -> None:
+        if not self.fresh:
+            typer.echo()
+        self.fresh = True
 
 
 @app.callback()
@@ -62,30 +84,53 @@ def produce(
     if not prompt.strip():
         raise typer.BadParameter("say what you want done")
     started = False
+    out = Out()
     try:
         client = openai.OpenAI()
         with LogicPro.from_env() as logic:
             session = read_session(logic, key=(key or "").strip() or None, selection=selection)
             started = True
-            loop.produce(
-                logic,
-                client,
-                prompt.strip(),
-                session,
-                text=lambda chunk: typer.echo(chunk, nl=False),
-                line=lambda status, detail: typer.echo(f"\n{MARKS[status]} {detail}"),
-            )
+            saved = loop.produce(logic, client, prompt.strip(), session, text=out.text, line=out.line)
     except ExecutorError as e:
-        typer.echo(f"\n{MARKS['fail']} {e}", err=True)
+        out.end_line()
+        typer.echo(f"{MARKS['fail']} {e}", err=True)
         if started:
             typer.echo("mixhand undo says what the finished actions left to undo.", err=True)
         raise typer.Exit(1)
     except (loop.PlannerError, openai.OpenAIError) as e:
-        typer.echo(f"\n{MARKS['fail']} {e}", err=True)
+        out.end_line()
+        typer.echo(f"{MARKS['fail']} {e}", err=True)
         if started:
             typer.echo("mixhand undo reverses what was done.", err=True)
         raise typer.Exit(1)
-    typer.echo(typer.style("\nmixhand undo reverses this run.", dim=True))
+    out.end_line()
+    typer.echo(typer.style("mixhand undo reverses this run." if saved else NOTHING_TO_UNDO, dim=True))
+
+
+@app.command()
+def explain() -> None:
+    """Reprint what Mixhand's last run showed: its plan, each action and the reason for it."""
+    try:
+        run = explain_log.last_run()
+    except explain_log.Unexplained as e:
+        typer.echo(f"{MARKS['fail']} {e}", err=True)
+        raise typer.Exit(1)
+    typer.echo(typer.style(f"Last run, {run.began:%Y-%m-%d %H:%M}: {run.label}", dim=True))
+    out = Out()
+    for event in run.shown:
+        if event["event"] == "planner.text":
+            out.text(event["text"])
+        elif event["event"] == "planner.action":
+            out.line("pass", event["detail"], event["reason"])
+        else:
+            out.line("fail", event["detail"])
+    out.end_line()
+    if run.end is None:
+        typer.echo(f"{MARKS['unknown']} The log has no end for this run: it is still going, or it stopped before it could write one.")
+    elif not run.end.get("saved"):
+        typer.echo(typer.style(NOTHING_TO_UNDO, dim=True))
+    if run.undo_began is not None:
+        typer.echo(typer.style(f"mixhand undo began taking this run back at {run.undo_began:%H:%M}.", dim=True))
 
 
 @app.command()

@@ -98,7 +98,7 @@ def logic(tmp_path, monkeypatch):
 def run(client, lines=None):
     shown, lines = [], [] if lines is None else lines
     logic = SimpleNamespace(track_names=lambda: ["Lead Vocal", "Double"])
-    produce(logic, client, "make it bigger", session(), text=shown.append, line=lambda s, d: lines.append((s, d)))
+    produce(logic, client, "make it bigger", session(), text=shown.append, line=lambda *shown_line: lines.append(shown_line))
     return "".join(shown)
 
 
@@ -116,7 +116,7 @@ def test_the_plan_streams_then_each_valid_action_runs_and_its_result_goes_back_t
         ("duplicate_track", {"source": "Lead Vocal", "new_name": "Double"}),
         ("set_pan", {"track": "Double", "value": -40}),
     ]
-    assert lines == [("pass", "duplicate_track done — reason 1"), ("pass", "set_pan done — reason 2")]
+    assert lines == [("pass", "duplicate_track done", "reason 1"), ("pass", "set_pan done", "reason 2")]
     sent = client.requests[1]["input"]
     assert [i.get("type") for i in sent[1:]] == ["message", "function_call", "function_call_output"]
     assert sent[-1] == {"type": "function_call_output", "call_id": "call_1", "output": "duplicate_track done"}

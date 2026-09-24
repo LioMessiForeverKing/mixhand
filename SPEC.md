@@ -33,7 +33,7 @@ If a task seems to require something out of scope, stop and ask.
 ## 3. Architecture
 
 ```
-Terminal CLI (Python, rich/textual)
+Terminal CLI (Python, typer)
     │  prompt + streamed plan/log
     ▼
 Planner  ──── OpenAI Responses API, function tools, model $MIXHAND_MODEL (default gpt-6-sol) ────
@@ -62,7 +62,7 @@ Never touch the `.logicx` package contents. Never parse `ProjectData`.
 ## 4. Executor — the six primitives
 
 Module: `mixhand/executor/`. Each primitive is a function that returns `ActionResult(ok: bool, detail: str, verified: bool)`. Every primitive must:
-- log one line before acting and one after (`logging` → both stdout and `logs/actions.jsonl`)
+- log one line before acting and one after, to `logs/actions.jsonl` only: the terminal shows the action log, not the JSON
 - verify via the state reader after acting (re-scrape the affected track/strip)
 - raise `ExecutorError` on failure — never silently continue
 - be idempotent-safe: calling twice must not create two of something (check state first)
@@ -150,9 +150,9 @@ Conversational follow-ups ("make the doubles quieter") reuse the same loop with 
 `mixhand` entry point (`typer`). Commands:
 - `doctor` — checks §4 environment assumptions, prints pass/fail
 - `state` — prints session JSON
-- `produce "<prompt>"` — the main loop, streamed with `rich`: plan text, then a live action log (`✔ Duplicated Lead Vocal → Chorus Double L — panned −40 so the lead stays centered`)
+- `produce "<prompt>"` — the main loop, streamed: plan text, then a live action log (`✔ Duplicated Lead Vocal → Chorus Double L — panned −40 so the lead stays centered`)
 - `undo` — undoes the last AI action group
-- `explain` — reprints the reasons for the last group
+- `explain` — reprints what the last run showed (plan text, each action and its reason, refusals, why it stopped) from `logs/actions.jsonl`, and says if the run never logged an end or if `undo` began on it
 
 Look: dark terminal, monospace, minimal color (green ✔, red ✖, dim reasons). This window sits on top of Logic in the recording — it is the product's face. No spinners that hide the log.
 
