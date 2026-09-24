@@ -69,9 +69,10 @@ It then duplicates `Lead Vocal Double` again, deletes it, undoes the delete, del
 checks a second delete is refused, ten times. Either test deletes a leftover `Lead Vocal Double` if
 it fails partway.
 `Lead Vocal` needs at least one region for that part.
-Last, it creates `Mixhand Aux` with Channel EQ, checks a second call adds nothing, then undoes it
-one step at a time and checks the fourth undo is *Create New Auxiliary Channel Strip* and the
-session and Edit menu are back where they started, ten times. If it fails partway it says so rather
+Last, it creates `Mixhand Aux` with Channel EQ, ChromaVerb and Stereo Delay in turn, checks a
+second call adds nothing, then undoes it one step at a time and checks the fourth undo is *Create
+New Auxiliary Channel Strip* and the session and Edit menu are back where they started, ten times
+each. If it fails partway it says so rather
 than guessing how many undos to send.
 Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate -d`).
 
@@ -79,7 +80,7 @@ Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate 
 
 | Question | Answer |
 |---|---|
-| Does LogicProMCP's `insert_plugin` work for stock plugins on this Logic? | **Yes.** `logic_plugins.insert_verified` walks `EQ > Channel EQ` and reads the slot back. Before retries, 17 of 20 live runs passed; each failure was a refusal before any plugin was chosen (`slot_popup_menu_not_found`, `safe_to_retry`). Mixhand now re-reads the slot and retries up to three times, and the next 20 runs all passed without needing a retry. It supports only Gain, Channel EQ and Compressor. |
+| Does LogicProMCP's `insert_plugin` work for stock plugins on this Logic? | **Yes.** `logic_plugins.insert_verified` walks `EQ > Channel EQ` and reads the slot back. Before retries, 17 of 20 live runs passed; each failure was a refusal before any plugin was chosen (`slot_popup_menu_not_found`, `safe_to_retry`). Mixhand now re-reads the slot and retries up to three times, and the next 20 runs all passed without needing a retry. It supports only Gain, Channel EQ and Compressor; Mixhand picks ChromaVerb and Stereo Delay from the menu itself (see Known issues). |
 | Which AX element exposes empty Audio FX and Send slots? | Empty inserts: LogicProMCP's `get_inventory` reports them (`read_status: empty`). Empty sends: LogicProMCP says an empty send slot exposes no `AXValue`, `AXValueDescription` or `AXTitle`. Primitive 5 has to find another way (milestone 2). |
 | Can the cycle range be read via AX? | Only whether cycle is on. `logic://transport/state` has `isCycleEnabled` but no start or end bar. Plan on `--start-bar/--end-bar` (milestone 3). |
 | Does `Cmd+D` create a duplicate track without regions? | **Yes**, and primitive 1 doesn't use it. `Cmd+D` is Track › Other › New Track With Duplicate Settings: an empty track under the source, with the source's name. The item beside it, **New Track With Duplicate Settings and Content**, copies the regions too, so `duplicate_track` clicks that one and needs no copy and paste. LogicProMCP 3.16.0 can't call it, so Mixhand clicks it through System Events after LogicProMCP has selected the source and confirmed the selection. The menu names are English; another Logic language needs them re-read. |
@@ -114,8 +115,17 @@ Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate 
   click needed two. Close a Logic menu opened this way with AXCancel; System Events' Escape left
   it open. Before the retry, a failed second click once left Logic not answering AppleScript until
   it was restarted, and LogicProMCP then reports no front project. The cause was not pinned down.
-- An aux can carry only what LogicProMCP can insert: Gain, Channel EQ or Compressor. `create_aux`
-  refuses ChromaVerb, Stereo Delay and the rest before creating anything.
+- LogicProMCP inserts only Gain, Channel EQ and Compressor, so Mixhand picks ChromaVerb and Stereo
+  Delay from the slot's plug-in menu itself (`pick_plugin`): the strip found by its name field, not
+  its description, which keeps `Aux 1` after a rename; its one empty slot; that slot's own
+  *Open plug-in menu* action; a check that the menu opened beside it; then *Reverb › ChromaVerb*
+  or *Delay › Stereo Delay*. A new aux offers only *Mono* and *Mono->Stereo*, so it takes *Stereo*
+  where offered and *Mono->Stereo* otherwise, never *Mono*. The slot is read back through
+  `get_inventory` by name, and the plug-in window that opens is closed with Window › Hide All
+  Plug-in Windows. Logic labels a Stereo Delay slot `St-Delay`, so the readback expects that. Any
+  other plugin is refused before anything is created. The menu names are English. 30 of 30 live
+  aux runs passed, 10 each with Channel EQ, ChromaVerb and Stereo Delay, and the 20 menu runs
+  passed again after review; each picked *Mono->Stereo*, and the result names the format picked.
 - An aux strip left without a track, for example by a run killed between the two clicks, is invisible
   to LogicProMCP, so `create_aux` cannot see it. Undo it, or delete the strip in the Mixer.
 

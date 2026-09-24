@@ -163,6 +163,88 @@ end run
 """
 
 
+# The strips are a layout area beside the Mixer's menu bar, and a slot's plug-in menu opens as a menu of that area.
+# A strip's description keeps the name Logic gave it, so a renamed aux is found by its name field.
+MIXER_STRIPS = """
+on mixerStrips()
+    tell application "System Events" to tell process "Logic Pro"
+        set found to {}
+        repeat with w in windows
+            repeat with g in (groups of w)
+                if (count of (groups of g whose description is "Mixer")) > 0 then
+                    repeat with a in (UI elements of g whose role is "AXLayoutArea" and description is "Mixer")
+                        set end of found to contents of a
+                    end repeat
+                end if
+            end repeat
+        end repeat
+        if (count of found) is not 1 then error "found " & (count of found) & " Mixers; show exactly one, in the Tracks window (X) or its own (Window > Open Mixer)"
+        return item 1 of found
+    end tell
+end mixerStrips
+"""
+
+PICK_PLUGIN = MIXER_STRIPS + """
+on run argv
+    set {stripName, category, plugin} to items 1 thru 3 of argv
+    set formats to items 4 thru -1 of argv
+    set area to my mixerStrips()
+    considering case
+    tell application "System Events" to tell process "Logic Pro"
+        set strips to {}
+        repeat with s in UI elements of area
+            if (value of text fields of s whose description is "name") is {stripName} then set end of strips to contents of s
+        end repeat
+        if (count of strips) is not 1 then error "found " & (count of strips) & " Mixer strips named " & stripName
+        set slots to buttons of (item 1 of strips) whose description is "audio plug-in"
+        if (count of slots) is not 1 then error "found " & (count of slots) & " empty insert slots on " & stripName
+        set slot to item 1 of slots
+        if (count of menus of area) > 0 then error "a plug-in menu is already open in the Mixer; close it and run again"
+        set opener to missing value
+        repeat with a in actions of slot
+            if name of a starts with "Name:Open plug-in menu" then set opener to contents of a
+        end repeat
+        if opener is missing value then error stripName & "'s empty slot offers no plug-in menu"
+        perform opener
+        repeat 20 times
+            if (count of menus of area) > 0 then exit repeat
+            delay 0.1
+        end repeat
+        if (count of menus of area) is 0 then error "the plug-in menu on " & stripName & " did not open"
+        set m to menu 1 of area
+        try
+            set {menuX, menuY} to position of m
+            set {menuW, menuH} to size of m
+            set {slotX, slotY} to position of slot
+            set {slotW, slotH} to size of slot
+            set slotMid to slotY + slotH / 2
+            if slotMid < menuY - 96 or slotMid > menuY + menuH + 96 or menuX < slotX - 140 or menuX > slotX + slotW + 360 then
+                error "the plug-in menu did not open at " & stripName & "'s empty slot"
+            end if
+            set choices to menu 1 of menu item plugin of menu 1 of menu item category of m
+            set leaf to missing value
+            repeat with fmt in formats
+                if leaf is missing value and (exists menu item (contents of fmt) of choices) then set leaf to menu item (contents of fmt) of choices
+            end repeat
+            if leaf is missing value then error category & " > " & plugin & " offers " & (title of menu items of choices) & ", none of " & formats
+            if not (enabled of leaf) then error category & " > " & plugin & " > " & (title of leaf) & " is disabled"
+        on error failure
+            perform action "AXCancel" of m
+            error failure
+        end try
+        set chosen to title of leaf
+        perform action "AXPick" of leaf
+        return chosen
+    end tell
+    end considering
+end run
+"""
+
+
+def pick_plugin(strip: str, category: str, plugin: str, formats: tuple[str, ...]) -> str:
+    return _run(PICK_PLUGIN, f"picking {category} > {plugin} on {strip}", strip, category, plugin, *formats)
+
+
 def require_mixer() -> None:
     _run(REQUIRE_MIXER, "finding the Mixer")
 
@@ -179,10 +261,11 @@ def set_track_name(position: int, current: str, wanted: str) -> None:
     _run(SET_TRACK_NAME, f"setting track {position}'s name", str(position), current, wanted)
 
 
-def _run(script: str, what: str, *args: str) -> None:
+def _run(script: str, what: str, *args: str) -> str:
     try:
         done = subprocess.run(["osascript", "-e", script, *args], capture_output=True, text=True, timeout=CLICK_WITHIN_S)
     except subprocess.TimeoutExpired as e:
         raise ExecutorError(f"{what} did not finish within {CLICK_WITHIN_S:g}s") from e
     if done.returncode != 0:
         raise ExecutorError(f"{what} failed: {done.stderr.strip()}")
+    return done.stdout.strip()

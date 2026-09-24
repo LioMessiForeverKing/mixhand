@@ -72,12 +72,32 @@ def test_an_aux_is_created_given_a_track_renamed_and_given_its_plugin(fake, mixe
     ]
 
 
-def test_a_plugin_logicpromcp_cannot_insert_is_refused_before_anything_is_touched(fake, mixer, names):
+def test_a_plugin_mixhand_cannot_insert_is_refused_before_anything_is_touched(fake, mixer, names):
     serve(fake, [[VOCAL]])
-    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="cannot carry 'ChromaVerb' yet"):
-        create_aux(logic, "Verb", "ChromaVerb")
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="cannot carry 'Space Designer'"):
+        create_aux(logic, "Verb", "Space Designer")
 
     assert fake.calls() == [] and mixer == [] and names == []
+
+
+def test_an_aux_is_given_chromaverb_from_the_plugin_menu(fake, mixer, names, monkeypatch):
+    picked = []
+    monkeypatch.setattr("mixhand.executor.primitives.pick_plugin", lambda *path: picked.append(path) or "Mono->Stereo")
+    monkeypatch.setattr("mixhand.executor.primitives.click_menu", lambda *path: None)
+    fake.serve(
+        resources={"logic://tracks": [listing(*step) for step in [[VOCAL], [VOCAL, NEW], [VOCAL, NEW], [VOCAL, NAMED]]]},
+        tools={
+            "logic_tracks.select": [SELECTED],
+            "logic_plugins.get_inventory": [inventory(slot(0)), inventory(slot(0)), inventory(slot(0, "ChromaVerb"), slot(1))],
+        },
+    )
+    with LogicPro.from_env() as logic:
+        result = create_aux(logic, "Verb", "ChromaVerb")
+
+    assert result.verified
+    assert result.detail == "Created aux Verb with ChromaVerb; undo 4 removes it"
+    assert picked == [("Verb", "Reverb", "ChromaVerb", ("Stereo", "Mono->Stereo"))]
+    assert sent(fake, "logic_plugins.insert_verified") == []
 
 
 def test_a_second_call_creates_nothing_and_leaves_the_plugin_alone(fake, mixer, names):

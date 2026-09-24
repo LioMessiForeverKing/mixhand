@@ -2,7 +2,7 @@ import time
 
 from mixhand.executor import ActionResult, ExecutorError
 from mixhand.executor.actionlog import log
-from mixhand.executor.ax import click_menu, click_mixer_menu, require_inspector, require_mixer, set_track_name
+from mixhand.executor.ax import click_menu, click_mixer_menu, pick_plugin, require_inspector, require_mixer, set_track_name
 from mixhand.executor.fader import DB_AT_RAW, PAN_CENTRE_RAW, pan_contract, raw_nearest, volume_contract
 from mixhand.executor.logicpro import POLL_S, LogicPro
 
@@ -18,6 +18,11 @@ DUPLICATE_MENU = ("Track", "Other", "New Track With Duplicate Settings and Conte
 AUX_MENU = ("Options", "Create New Auxiliary Channel Strip")
 AUX_TRACK_MENU = ("Options", "Create Tracks for Selected Channel Strips")
 INSERTABLE = ("Gain", "Channel EQ", "Compressor")
+PLUGIN_MENU = {"ChromaVerb": ("Reverb", "ChromaVerb"), "Stereo Delay": ("Delay", "Stereo Delay")}
+# A new aux offers only mono inputs, and a reverb or delay return must stay stereo.
+PLUGIN_FORMATS = ("Stereo", "Mono->Stereo")
+HIDE_PLUGIN_WINDOWS = ("Window", "Hide All Plug-in Windows")
+SLOT_LABEL = {"Stereo Delay": "St-Delay"}
 # LogicProMCP's track list trails a write by about three seconds in the same process.
 SETTLES_WITHIN_S = 10.0
 
@@ -48,13 +53,15 @@ def inserts(logic: LogicPro, index: int, track: str) -> list[dict]:
 
 
 def insert_plugin(logic: LogicPro, track: str, plugin: str) -> ActionResult:
+    if plugin not in INSERTABLE and plugin not in PLUGIN_MENU:
+        raise ExecutorError(f"Mixhand inserts only {', '.join([*INSERTABLE, *PLUGIN_MENU])}, not {plugin!r}")
     project = logic.require_project()
     index = track_index(logic, track)
     attempt = 0
     while True:
         attempt += 1
         slots = inserts(logic, index, track)
-        present = [s["insert"] for s in slots if s["name"] == plugin]
+        present = [s["insert"] for s in slots if s["name"] == SLOT_LABEL.get(plugin, plugin)]
         if present and attempt == 1:
             log("insert_plugin.skipped", track=track, plugin=plugin, slot=present[0])
             return ActionResult(ok=True, detail=f"{plugin} is already on {track} slot {present[0]}", verified=True)
@@ -64,6 +71,8 @@ def insert_plugin(logic: LogicPro, track: str, plugin: str) -> ActionResult:
         empty = [s["insert"] for s in slots if not s["occupied"]]
         if not empty:
             raise ExecutorError(f"{track!r} has no empty insert slot")
+        if plugin in PLUGIN_MENU:
+            return _pick_once(logic, track, plugin, slots, empty[0])
         try:
             return _insert_once(logic, project, index, track, plugin, empty[0], attempt)
         except ExecutorError as e:
@@ -117,6 +126,44 @@ def _insert_once(logic: LogicPro, project: str, index: int, track: str, plugin: 
             f"(state {result.get('state')}: {result.get('reason') or result.get('error')})"
         )
     return ActionResult(ok=True, detail=f"Inserted {plugin} on {track} slot {slot}", verified=True)
+
+
+def _pick_once(logic: LogicPro, track: str, plugin: str, before: list[dict], slot: int) -> ActionResult:
+    log("insert_plugin.start", track=track, plugin=plugin, slot=slot, via="menu")
+    try:
+        chosen = pick_plugin(track, *PLUGIN_MENU[plugin], PLUGIN_FORMATS)
+    except ExecutorError as e:
+        log("insert_plugin.refused", track=track, plugin=plugin, slot=slot, error=str(e))
+        raise ExecutorError(f"{e}; check {track} in the Mixer and undo 1 only if {plugin} is on it") from e
+    chain = {s["insert"]: s["name"] for s in before if s["occupied"]}
+    deadline = time.monotonic() + SETTLES_WITHIN_S
+    while True:
+        after = logic.call("logic_plugins", "get_inventory", track=track_index(logic, track))
+        landed = {s["insert"]: s["name"] for s in after.get("plugins", []) if s["occupied"]}
+        if after.get("complete") and landed != chain:
+            break
+        if time.monotonic() >= deadline:
+            raise ExecutorError(
+                f"no plugin appeared on {track!r} within {SETTLES_WITHIN_S:g}s; check it in the Mixer and undo 1 only if {plugin} is on it"
+            )
+        time.sleep(POLL_S)
+    if landed != {**chain, slot: SLOT_LABEL.get(plugin, plugin)}:
+        raise ExecutorError(
+            f"picking {plugin} left {track!r} with {landed}, not {plugin} added on slot {slot}; check Logic before undoing"
+        )
+    try:
+        logic.require_project()
+    except ExecutorError as e:
+        raise ExecutorError(
+            f"{e}; {plugin} landed on {track} slot {slot}, but the front project could not be confirmed afterwards, "
+            "so check which project it is in before undoing"
+        ) from e
+    log("insert_plugin.done", track=track, plugin=plugin, slot=slot, format=chosen, verified=True, via="menu")
+    try:
+        click_menu(*HIDE_PLUGIN_WINDOWS)
+    except ExecutorError as e:
+        log("insert_plugin.window_left_open", track=track, plugin=plugin, error=str(e))
+    return ActionResult(ok=True, detail=f"Inserted {plugin} ({chosen}) on {track} slot {slot}", verified=True)
 
 
 def set_volume(logic: LogicPro, track: str, db: float) -> ActionResult:
@@ -307,8 +354,8 @@ def _rename_copy(logic: LogicPro, index: int, copy_ref: str, source: str, new_na
 
 
 def create_aux(logic: LogicPro, name: str, plugin: str) -> ActionResult:
-    if plugin not in INSERTABLE:
-        raise ExecutorError(f"LogicProMCP inserts only {', '.join(INSERTABLE)}, so an aux cannot carry {plugin!r} yet")
+    if plugin not in INSERTABLE and plugin not in PLUGIN_MENU:
+        raise ExecutorError(f"Mixhand inserts only {', '.join([*INSERTABLE, *PLUGIN_MENU])}, so an aux cannot carry {plugin!r}")
     logic.require_project()
     before = logic.tracks()
     if any(t["name"] == name for t in before):
