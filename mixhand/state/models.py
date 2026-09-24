@@ -38,13 +38,12 @@ class Session:
     project: Project
     selection: Selection | None
     tracks: list[Channel]
-    auxes: list[Channel]
     available_plugins: list[str]
 
 
 def as_json(session: Session) -> str:
     body = asdict(session)
-    for channel in (*body["tracks"], *body["auxes"]):
+    for channel in body["tracks"]:
         if math.isinf(channel["volume_db"]):
             channel["volume_db"] = "-inf"
     return json.dumps(body, indent=2, ensure_ascii=False)

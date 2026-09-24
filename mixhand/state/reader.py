@@ -28,12 +28,10 @@ def read_session(logic: LogicPro, key: str | None = None, selection: Selection |
     if _identities(after) != _identities(before):
         raise ExecutorError("Logic's tracks changed while the session was read; run mixhand state again")
     logic.require_project()
-    kinds = [t.get("type") for t in before]
     return Session(
         project=Project(path=path, tempo=tempo, time_sig_saved=time_sig, key=key),
         selection=selection,
-        tracks=[c for c, kind in zip(channels, kinds) if kind != "aux"],
-        auxes=[c for c, kind in zip(channels, kinds) if kind == "aux"],
+        tracks=channels,
         available_plugins=[*INSERTABLE, *PLUGIN_MENU],
     )
 

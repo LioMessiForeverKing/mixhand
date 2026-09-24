@@ -108,16 +108,14 @@ def test_the_session_names_every_track_aux_plugin_and_send_the_mixer_shows(fake,
                 "sends": [{"bus": 4, "aux": "Delay"}, {"bus": 3, "aux": None}],
                 "bus": None,
             },
-        ],
-        "auxes": [
-            {"name": "Delay", "volume_db": 0.0, "pan": 0, "plugins": ["Stereo Delay"], "sends": [], "bus": 4}
+            {"name": "Delay", "volume_db": 0.0, "pan": 0, "plugins": ["Stereo Delay"], "sends": [], "bus": 4},
         ],
         "available_plugins": ["Gain", "Channel EQ", "Compressor", "ChromaVerb", "Stereo Delay"],
     }
     assert [c["params"]["track"] for c in fake.calls()] == [0, 1, 2]
 
 
-def test_a_send_to_a_bus_two_auxes_listen_on_names_neither(fake, mixer):
+def test_a_send_to_a_bus_two_strips_listen_on_names_neither(fake, mixer):
     serve(fake)
     mixer["routes"] = MIXER + "\n" + strip("Verb", inputs=("Bus 4",))
 
@@ -136,13 +134,11 @@ def test_every_fader_and_pan_position_reads_back_as_the_one_that_was_set():
     assert [pan_at_contract(pan_contract(pan)) for pan in range(-64, 64)] == list(range(-64, 64))
 
 
-def test_an_aux_is_known_by_its_type_not_by_a_bus_on_its_input(fake, mixer):
+def test_every_channel_is_listed_by_its_routing_whatever_logic_calls_its_type(fake, mixer):
     serve(fake, tracks=[listing(("Print", 0.0, 0, "unknown"), ("Verb", 0.0, 0, "aux"))], inventories=[slots(), slots()])
     mixer["routes"] = "\n".join([strip("Print", inputs=("Bus 2",)), strip("Verb")])
-    session = read()
 
-    assert [(c["name"], c["bus"]) for c in session["tracks"]] == [("Print", 2)]
-    assert [(c["name"], c["bus"]) for c in session["auxes"]] == [("Verb", None)]
+    assert [(c["name"], c["bus"]) for c in read()["tracks"]] == [("Print", 2), ("Verb", None)]
 
 
 def test_a_track_list_logic_calls_incomplete_is_refused(fake, mixer):

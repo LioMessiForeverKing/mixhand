@@ -100,9 +100,7 @@ Module: `mixhand/state/`. `read_session(logic) -> Session` (dataclasses). Every 
     {"name": "Lead Vocal", "volume_db": -3.2, "pan": 0,
      "plugins": ["Compressor"], "sends": [{"bus": 4, "aux": "Verb"}], "bus": null},
     {"name": "Adlib", "volume_db": -6.0, "pan": 0,
-     "plugins": [], "sends": [], "bus": null}
-  ],
-  "auxes": [
+     "plugins": [], "sends": [], "bus": null},
     {"name": "Verb", "volume_db": 0.0, "pan": 0,
      "plugins": ["ChromaVerb"], "sends": [], "bus": 4}
   ],
@@ -114,11 +112,11 @@ Where each field comes from, measured against LogicProMCP 3.16.0 and Logic 12.3.
 - `tempo` from `logic://transport/state`, live. `time_sig_saved` from `logic://project/info`, which reads the saved project file, so it lags any unsaved change.
 - Tracks, volume and pan from `logic://tracks`; `volume_db` is a fader step from `DB_AT_RAW`, and `-inf` prints as the string `"-inf"`.
 - Plugins from `logic_plugins.get_inventory`, in slot order.
-- Sends and `bus` from the Mixer itself (`READ_ROUTES`), because `logic://mixer` does not cover sends. An aux is a track whose strip's one input is a bus. A send's `aux` is `null` when no single named strip listens on that bus. The Mixer must be showing, with every track's strip in it.
+- Sends and `bus` from the Mixer itself (`READ_ROUTES`), because `logic://mixer` does not cover sends. `bus` is the bus a channel's one input listens on. A send's `aux` names the one strip listening on its bus, or is `null` when no single named strip does. There is no aux list: LogicProMCP infers a track's type from header help text, and a header without an Input Monitoring button reads as an aux, so the routing is reported instead of a label. The Mixer must be showing, with every track's strip in it.
 - `key` and `selection` are not readable: LogicProMCP reads neither the key nor the cycle range. They come from `--key` and `--start-bar/--end-bar`, and are `null` without them.
 - `available_plugins` is what Mixhand can insert, not a read.
 
-`state` refuses rather than guesses: a track with no Mixer strip, a plugin whose name can't be read, or tracks that changed during the read each stop it with one line saying what is wrong.
+`state` refuses rather than guesses. Each of these stops it with one line saying what is wrong: a collapsed track stack, a track with no Mixer strip, a pan knob or plugin name that can't be read, tracks that changed during the read, or a different project in front. A fader that can't be read is not caught yet: LogicProMCP reports it as `0.0`, the same as a fader all the way down.
 
 Optional audio analysis (only after §9 milestone 4 is done): `analyze_stems(tracks) -> dict` — bounce the selected regions per track (`Cmd+B` / bounce-in-place to a temp folder), then `librosa` + `pyloudnorm`: integrated LUFS, crest factor, spectral centroid, energy in bands (80–250 Hz, 250–500, 2–4 kHz, 8 kHz+). Feed into the planner prompt. This is what makes explanations specific ("your loud phrases are ~7 dB above the quiet ones").
 
