@@ -241,8 +241,103 @@ end run
 """
 
 
+# A slot's description is its current setting, so input, output and send slots are told apart by their help text.
+READ_ROUTES = MIXER_STRIPS + """
+on run
+    set area to my mixerStrips()
+    set out to {}
+    tell application "System Events" to tell process "Logic Pro"
+        repeat with s in UI elements of area
+            set {stripName, inputs, outputs, sends, empty} to {"", {}, {}, {}, 0}
+            repeat with f in (text fields of s whose description is "name")
+                set stripName to value of f
+            end repeat
+            repeat with b in buttons of s
+                set h to ""
+                try
+                    set h to help of b
+                end try
+                if h starts with "Input slot." then set end of inputs to description of b
+                if h starts with "Output slot." then set end of outputs to description of b
+                if h starts with "Send slot." then set empty to empty + 1
+            end repeat
+            repeat with g in groups of s
+                if (count of (checkboxes of g whose description is "bypass")) is 1 and description of g starts with "Bus " then set end of sends to description of g
+            end repeat
+            set AppleScript's text item delimiters to "|"
+            set end of out to stripName & tab & (inputs as text) & tab & (outputs as text) & tab & (sends as text) & tab & empty
+        end repeat
+    end tell
+    set AppleScript's text item delimiters to linefeed
+    return out as text
+end run
+"""
+
+# Straight after a strip is created Logic drops a press on its slots too, so the press repeats until the menu opens.
+PICK_ROUTE = MIXER_STRIPS + """
+on run argv
+    set {stripName, slotHelp, slotName} to items 1 thru 3 of argv
+    set picks to items 4 thru -1 of argv
+    set area to my mixerStrips()
+    considering case
+    tell application "System Events" to tell process "Logic Pro"
+        set strips to {}
+        repeat with s in UI elements of area
+            if (value of text fields of s whose description is "name") is {stripName} then set end of strips to contents of s
+        end repeat
+        if (count of strips) is not 1 then error "found " & (count of strips) & " Mixer strips named " & stripName
+        set slots to {}
+        repeat with b in (buttons of (item 1 of strips) whose description is slotName)
+            set h to ""
+            try
+                set h to help of b
+            end try
+            if h starts with slotHelp & "." then set end of slots to contents of b
+        end repeat
+        if (count of slots) is 0 then error stripName & " has no " & slotHelp & " reading " & slotName
+        set slot to item 1 of slots
+        if (count of menus of area) > 0 then error "a menu is already open in the Mixer; close it and run again"
+        repeat with attempt from 1 to 10
+            perform action "AXPress" of slot
+            repeat 10 times
+                if (count of menus of area) > 0 then exit repeat
+                delay 0.1
+            end repeat
+            if (count of menus of area) > 0 then exit repeat
+        end repeat
+        if (count of menus of area) is 0 then error "the " & slotHelp & " menu on " & stripName & " did not open"
+        set m to menu 1 of area
+        try
+            set leaf to m
+            repeat with i from 1 to count of picks
+                set wanted to item i of picks
+                if not (exists menu item wanted of leaf) then error wanted & " is not in the menu; it offers " & (name of menu items of leaf)
+                set choice to menu item wanted of leaf
+                if name of choice is not wanted then error "the menu offers " & (name of choice) & ", not " & wanted
+                if i < (count of picks) then set leaf to menu 1 of choice
+            end repeat
+            if not (enabled of choice) then error (item -1 of picks) & " is disabled"
+        on error failure
+            perform action "AXCancel" of m
+            error failure
+        end try
+        perform action "AXPick" of choice
+    end tell
+    end considering
+end run
+"""
+
+
 def pick_plugin(strip: str, category: str, plugin: str, formats: tuple[str, ...]) -> str:
     return _run(PICK_PLUGIN, f"picking {category} > {plugin} on {strip}", strip, category, plugin, *formats)
+
+
+def read_routes() -> str:
+    return _run(READ_ROUTES, "reading the Mixer's inputs, outputs and sends")
+
+
+def pick_route(strip: str, slot_help: str, slot: str, path: tuple[str, ...]) -> None:
+    _run(PICK_ROUTE, f"picking {' > '.join(path)} on {strip}'s {slot_help.lower()}", strip, slot_help, slot, *path)
 
 
 def require_mixer() -> None:

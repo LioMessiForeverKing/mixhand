@@ -81,7 +81,7 @@ Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate 
 | Question | Answer |
 |---|---|
 | Does LogicProMCP's `insert_plugin` work for stock plugins on this Logic? | **Yes.** `logic_plugins.insert_verified` walks `EQ > Channel EQ` and reads the slot back. Before retries, 17 of 20 live runs passed; each failure was a refusal before any plugin was chosen (`slot_popup_menu_not_found`, `safe_to_retry`). Mixhand now re-reads the slot and retries up to three times, and the next 20 runs all passed without needing a retry. It supports only Gain, Channel EQ and Compressor; Mixhand picks ChromaVerb and Stereo Delay from the menu itself (see Known issues). |
-| Which AX element exposes empty Audio FX and Send slots? | Empty inserts: LogicProMCP's `get_inventory` reports them (`read_status: empty`). Empty sends: LogicProMCP says an empty send slot exposes no `AXValue`, `AXValueDescription` or `AXTitle`. Primitive 5 has to find another way (milestone 2). |
+| Which AX element exposes empty Audio FX and Send slots? | Empty inserts: LogicProMCP's `get_inventory` reports them (`read_status: empty`). Empty sends: LogicProMCP says an empty send slot exposes no `AXValue`, `AXValueDescription` or `AXTitle`. Mixhand reads the Mixer strip itself: a slot's description is its current setting and its help text names its kind (`Input slot.`, `Output slot.`, `Send slot.`), so an empty send is a button with help `Send slot.` and a filled one is a group described `Bus N` holding a `bypass` checkbox. |
 | Can the cycle range be read via AX? | Only whether cycle is on. `logic://transport/state` has `isCycleEnabled` but no start or end bar. Plan on `--start-bar/--end-bar` (milestone 3). |
 | Does `Cmd+D` create a duplicate track without regions? | **Yes**, and primitive 1 doesn't use it. `Cmd+D` is Track › Other › New Track With Duplicate Settings: an empty track under the source, with the source's name. The item beside it, **New Track With Duplicate Settings and Content**, copies the regions too, so `duplicate_track` clicks that one and needs no copy and paste. LogicProMCP 3.16.0 can't call it, so Mixhand clicks it through System Events after LogicProMCP has selected the source and confirmed the selection. The menu names are English; another Logic language needs them re-read. |
 | Can LogicProMCP create an aux? | **No.** 3.16.0 creates audio, instrument, drummer and external MIDI tracks only, and has no send write either. `create_aux` clicks the Mixer's own Options menu: *Create New Auxiliary Channel Strip*, then *Create Tracks for Selected Channel Strips*. An aux without a track never appears in `logic://tracks`, so it gets one; LogicProMCP then lists it with `type: aux` and a `track_ref`, and `insert_plugin` reaches it. Creating it takes four undo steps: the strip, its track, the rename and the plugin; three when Logic already named it as asked, so there is no rename. 10 of 10 live runs passed. |
@@ -128,6 +128,23 @@ Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate 
   passed again after review; each picked *Mono->Stereo*, and the result names the format picked.
 - An aux strip left without a track, for example by a run killed between the two clicks, is invisible
   to LogicProMCP, so `create_aux` cannot see it. Undo it, or delete the strip in the Mixer.
+- `add_send` routes through the Mixer, because LogicProMCP 3.16.0 refuses `set_send` ("not yet
+  deterministic") and its routing graph covers no sends. A new aux listens on `Input 1`, and choosing
+  a send to a bus nothing listens on makes Logic create another aux, so the aux's Input slot is set
+  first: to the lowest bus no strip's input, output or send uses, or kept when it is already a bus.
+  A hidden track's strip leaves the Mixer (View › Follow Hide) and would make its bus look free,
+  as does a collapsed track stack's subtrack, so `add_send` refuses unless every track has a strip
+  showing, counted per name so a visible namesake cannot stand in for a hidden copy.
+  The send is then picked as *Bus › Bus N → aux*, a label that names the aux, so the pick itself
+  checks the route. Each change is one undo step (*Change Input in Channel Strip*, *Change Send in
+  Channel Strip*), and Logic rebuilds the strips after each, so a read in the next second can fail;
+  `add_send` waits until the Mixer reads back the one route asked for. 10 of 10 live runs passed,
+  each on Bus 1. Buses past 32 sit in submenus (*33 - 64* …) in the send menu; that the Input menu
+  nests the same way is assumed, not yet seen live.
+- A new send starts at −∞, and the aux's own fader does too, so it is silent until both are raised.
+  The send knob takes an `AXValue` from 0 to 2,130,706,432 and reads back Logic's dB in
+  `AXValueDescription`, but a write lands on a coarser grid than it asks for, and knob writes made an
+  undo step each in one run and none in another. That is `set_send_level`'s to pin down.
 
 - LogicProMCP speaks volume as a 0..1 contract, never dB. `mixhand/executor/fader.py` holds
   Logic's dB at each of the fader's 234 raw positions, read off the fader's AX value text on

@@ -1,8 +1,20 @@
 import time
+from collections import Counter
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from mixhand.executor import ActionResult, ExecutorError
 from mixhand.executor.actionlog import log
-from mixhand.executor.ax import click_menu, click_mixer_menu, pick_plugin, require_inspector, require_mixer, set_track_name
+from mixhand.executor.ax import (
+    click_menu,
+    click_mixer_menu,
+    pick_plugin,
+    pick_route,
+    read_routes,
+    require_inspector,
+    require_mixer,
+    set_track_name,
+)
 from mixhand.executor.fader import DB_AT_RAW, PAN_CENTRE_RAW, pan_contract, raw_nearest, volume_contract
 from mixhand.executor.logicpro import POLL_S, LogicPro
 
@@ -25,6 +37,11 @@ HIDE_PLUGIN_WINDOWS = ("Window", "Hide All Plug-in Windows")
 SLOT_LABEL = {"Stereo Delay": "St-Delay"}
 # LogicProMCP's track list trails a write by about three seconds in the same process.
 SETTLES_WITHIN_S = 10.0
+BUSES = range(1, 257)
+BUS_PAGE = 32
+INPUT_SLOT = "Input slot"
+SEND_SLOT = "Send slot"
+EMPTY_SEND = "send button"
 
 
 def track_index(logic: LogicPro, track: str) -> int:
@@ -445,3 +462,141 @@ def _rename_aux(logic: LogicPro, index: int, ref: str, current: str, name: str) 
         raise ExecutorError(
             f"{name!r} did not land on the new aux (Logic shows {[t['name'] for t in after]}); undo 3 removes it"
         )
+
+
+@dataclass(frozen=True)
+class Strip:
+    name: str
+    inputs: tuple[str, ...]
+    outputs: tuple[str, ...]
+    sends: tuple[str, ...]
+    empty_sends: int
+
+
+def add_send(logic: LogicPro, track: str, aux: str) -> ActionResult:
+    logic.require_project()
+    tracks = logic.tracks()
+    _named(tracks, track)
+    _, target = _named(tracks, aux)
+    if target.get("type") != "aux":
+        raise ExecutorError(f"{aux!r} is not an aux, so {track!r} cannot send to it")
+    if track == aux:
+        raise ExecutorError(f"{aux!r} cannot send to itself")
+    before = routes()
+    shown = Counter(s.name for s in before)
+    hidden = [name for name, n in Counter(t["name"] for t in tracks).items() if n > shown[name]]
+    if hidden:
+        raise ExecutorError(
+            f"the Mixer shows no strip for {hidden}, so a bus only they use would look free; "
+            "show every track's strip (unhide the tracks, expand collapsed track stacks, check the Mixer's View filters) and run again"
+        )
+    source, ret = _strip(before, track), _strip(before, aux)
+    if len(ret.inputs) != 1:
+        raise ExecutorError(f"{aux!r} shows {len(ret.inputs)} input slots in the Mixer, not one")
+    bus = _bus(ret.inputs[0])
+    if bus is not None and f"Bus {bus}" in source.sends:
+        log("add_send.skipped", track=track, aux=aux, bus=bus)
+        return ActionResult(ok=True, detail=f"{track} already sends to {aux} on Bus {bus}", verified=True)
+    if source.empty_sends == 0:
+        raise ExecutorError(f"{track!r} has no empty send slot")
+    steps = 0
+    if bus is None:
+        bus = _free_bus(before)
+        log("add_send.start", track=track, aux=aux, bus=bus, aux_input=ret.inputs[0])
+        try:
+            pick_route(aux, INPUT_SLOT, ret.inputs[0], _bus_path(f"Bus {bus}", bus))
+        except ExecutorError as e:
+            raise ExecutorError(f"{e}; check {aux}'s input in the Mixer and undo 1 only if it reads Bus {bus}") from e
+        seen = _await_routes(lambda strips: _strip(strips, aux).inputs == (f"Bus {bus}",))
+        if seen:
+            raise ExecutorError(
+                f"{aux}'s input did not read Bus {bus} within {SETTLES_WITHIN_S:g}s ({seen}); "
+                f"check it in the Mixer and undo 1 only if it reads Bus {bus}"
+            )
+        steps = 1
+    else:
+        log("add_send.start", track=track, aux=aux, bus=bus)
+    try:
+        pick_route(track, SEND_SLOT, EMPTY_SEND, _bus_path(f"Bus {bus} → {aux}", bus))
+    except ExecutorError as e:
+        raise ExecutorError(
+            f"{e}; check {track}'s sends in the Mixer: undo {steps + 1} if one reads Bus {bus}, "
+            + (f"otherwise undo {steps} to put {aux}'s input back" if steps else "otherwise nothing changed")
+        ) from e
+    wanted = [
+        (s.name, (f"Bus {bus}",) if s is ret else s.inputs, s.outputs, sorted([*s.sends, f"Bus {bus}"] if s is source else s.sends))
+        for s in before
+    ]
+    seen = _await_routes(lambda strips: [(s.name, s.inputs, s.outputs, sorted(s.sends)) for s in strips] == wanted)
+    if seen:
+        raise ExecutorError(
+            f"sending {track!r} to {aux!r} on Bus {bus} was not confirmed within {SETTLES_WITHIN_S:g}s ({seen}); "
+            "check Logic before undoing"
+        )
+    try:
+        logic.require_project()
+    except ExecutorError as e:
+        raise ExecutorError(
+            f"{e}; {track} sends to {aux} on Bus {bus}, but the front project could not be confirmed afterwards, "
+            "so check which project it is in before undoing"
+        ) from e
+    log("add_send.done", track=track, aux=aux, bus=bus, verified=True)
+    return ActionResult(ok=True, detail=f"Sent {track} to {aux} on Bus {bus}; undo {steps + 1} removes it", verified=True)
+
+
+# Logic rebuilds the Mixer's strips after a route changes, and a strip read mid-rebuild fails.
+def _await_routes(landed: Callable[[list[Strip]], bool]) -> str | None:
+    deadline = time.monotonic() + SETTLES_WITHIN_S
+    while True:
+        try:
+            strips = routes()
+            if landed(strips):
+                return None
+            seen = "the Mixer shows " + "; ".join(f"{s.name or '(unnamed)'}: in {s.inputs}, sends {s.sends}" for s in strips)
+        except ExecutorError as e:
+            seen = f"the Mixer could not be read: {e}"
+        if time.monotonic() >= deadline:
+            return seen
+        time.sleep(POLL_S)
+
+
+def routes() -> list[Strip]:
+    strips = []
+    for line in read_routes().splitlines():
+        fields = line.split("\t")
+        if len(fields) != 5 or not fields[4].isdigit():
+            raise ExecutorError(f"could not read a Mixer strip's routing from {line!r}")
+        name, inputs, outputs, sends, empty = fields
+        strips.append(Strip(name, _split(inputs), _split(outputs), _split(sends), int(empty)))
+    return strips
+
+
+def _split(joined: str) -> tuple[str, ...]:
+    return tuple(joined.split("|")) if joined else ()
+
+
+def _strip(strips: list[Strip], name: str) -> Strip:
+    named = [s for s in strips if s.name == name]
+    if len(named) != 1:
+        raise ExecutorError(f"the Mixer shows {len(named)} strips named {name!r}, not one")
+    return named[0]
+
+
+def _bus(slot: str) -> int | None:
+    number = slot.removeprefix("Bus ")
+    return int(number) if number != slot and number.isdigit() else None
+
+
+def _free_bus(strips: list[Strip]) -> int:
+    used = {_bus(slot) for s in strips for slot in (*s.inputs, *s.outputs, *s.sends)}
+    free = [n for n in BUSES if n not in used]
+    if not free:
+        raise ExecutorError(f"every bus from {BUSES[0]} to {BUSES[-1]} is in use")
+    return free[0]
+
+
+def _bus_path(item: str, bus: int) -> tuple[str, ...]:
+    if bus <= BUS_PAGE:
+        return ("Bus", item)
+    first = (bus - 1) // BUS_PAGE * BUS_PAGE + 1
+    return ("Bus", f"{first} - {first + BUS_PAGE - 1}", item)
