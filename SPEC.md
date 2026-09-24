@@ -15,7 +15,7 @@ Name: **Mixhand**. Positioning: "Claude Code for Logic Pro."
 ### In scope (build in this order — see §9)
 1. Executor: six primitives that move Logic (§4)
 2. State reader: session → JSON (§5)
-3. Planner: Claude API with a strict tool schema (§6)
+3. Planner: OpenAI Responses API with a strict tool schema (§6)
 4. CLI: terminal UI that streams the plan and action log (§7)
 5. Demo run + recording (§8)
 
