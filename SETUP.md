@@ -76,8 +76,10 @@ each. Then it creates `Mixhand Aux` with ChromaVerb and `Mixhand Delay` with Ste
 Stereo Delay sits in the second aux's top slot, and undoes all eight steps by title, ten times; 10 of
 10 passed. It then puts Stereo Delay under an empty slot on `Lead Vocal`, which must start with no
 plugins, checks ChromaVerb is refused there with nothing changed, and undoes five steps, ten times;
-10 of 10 passed. If it fails partway it says so rather than
-guessing how many undos to send.
+10 of 10 passed. Then it puts a Compressor on `Lead Vocal`, which must start with no plugins, sets its
+threshold to ten values, then does the same on a Channel EQ with ten peak gains and ten peak
+frequencies, each set twice, checks the only undo step is the insert, and undoes it. If it fails
+partway it says so rather than guessing how many undos to send.
 Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate -d`).
 
 ## SPEC §12, answered
@@ -167,6 +169,26 @@ Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate 
   from before the last edits, so an Undo title read then cannot be trusted. Wait for
   `tell application "Logic Pro" to get name of front document` to answer before the next live run;
   once, only a restart of Logic cleared it.
+
+- `set_plugin_param` wraps LogicProMCP's `set_param_verified` and `set_eq_band_verified`, which open
+  the plugin's window, write, read the value back in Logic's own text, close the window and roll
+  back a write that did not land. SPEC first planned MIDI CC through Controller Assignments, which
+  could not read anything back. Mixhand binds the write to the plugin's `plugin_insert_ref` and
+  checks the text Logic shows. Measured on 12.3.1:
+  - Compressor Threshold reads `60 %`, a normalized 0..100; AX shows no dB. Ratio is refused by
+    LogicProMCP, which measured its slider not moving.
+  - Channel EQ gain is compared as text, and LogicProMCP writes 3 as `+3 dB` while Logic shows
+    `+3.0 dB`, so a whole number of dB never lands. Mixhand walks the raw position instead: 240 +
+    10 × dB, 0 to 480, confirmed at −24.0, −5.5, 0.0, +3.0 and in the live sweep.
+  - Frequency reads whole Hz from 100 Hz up and `98.5 Hz` below, so under 100 Hz a whole number
+    never matches, and not every value there exists. The walk's first step is up, so a band at the
+    20000 Hz ceiling cannot move again; Mixhand stops at 19000 Hz.
+  - The Low Cut frequency made no progress from 20.0 Hz on a fresh Channel EQ, perhaps because
+    that band starts switched off; not pinned down, so it is not mapped.
+  - No write adds an undo step. `insert_plugin` cannot add a second plugin to a strip: once one
+    is there, `get_inventory` lists no empty slot.
+  - 2 to 3.5 s a write. Logic reported no front project for a while after the Compressor's undo,
+    as it does after an aux's.
 
 - LogicProMCP speaks volume as a 0..1 contract, never dB. `mixhand/executor/fader.py` holds
   Logic's dB at each of the fader's 234 raw positions, read off the fader's AX value text on

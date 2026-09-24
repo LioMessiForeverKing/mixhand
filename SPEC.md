@@ -74,7 +74,7 @@ Module: `mixhand/executor/`. Each primitive is a function that returns `ActionRe
 | 3 | Set pan / volume | `set_pan(track, value: int)` (−64..63), `set_volume(track, db: float)` | Primary: Mackie Control via IAC (select strip bank, send fader/V-pot). Fallback: AX double-click value field in Mixer, type number, Enter. |
 | 4 | Create aux with plugin | `create_aux(name: str, plugin: str) -> ActionResult` | Mixer › Options › Create New Auxiliary Channel Strip, then Create Tracks for Selected Channel Strips so LogicProMCP can see and bind it (answered in `SETUP.md`), rename it in the Inspector like primitive 1, then `insert_plugin`. No key command needed. The plugin is any primitive 2 can insert. |
 | 5 | Add send | `add_send(track: str, aux: str) -> ActionResult` | AX, because LogicProMCP 3.16.0 refuses `set_send` and reads no sends. A new aux listens on `Input 1`, not a bus, so first set its Input slot to the lowest bus no strip uses (skipped when it already listens on one), then the track's first empty Send slot → `Bus > Bus N → <aux>`. The level is left where Logic puts it (−∞). `set_send_level(track, aux, db)`, −60..0 dB, steps that send's knob in the Mixer until it reads the level, because each write moves the knob one step; it adds no undo step, so it reports the level it replaced (`SETUP.md`). |
-| 6 | Set plugin parameter | `set_plugin_param(track, plugin, param: str, value: float) -> ActionResult` | **Demo-limited.** Pre-map a small fixed set via Logic Controller Assignments → MIDI CC on IAC, documented in `SETUP.md`: Channel EQ high-pass freq, Compressor threshold + ratio, ChromaVerb mix/decay. Anything outside the map → `ExecutorError("param not mapped")`. Do not attempt AX control of plugin windows. |
+| 6 | Set plugin parameter | `set_plugin_param(track, plugin, param: str, value: float) -> ActionResult` | **Demo-limited.** LogicProMCP 3.16.0's verified plugin-window writes, bound to the plugin by its `plugin_insert_ref`, each read back in Logic's own text: Compressor `Threshold` (whole %, 0..100; AX shows no dB) and Channel EQ `Peak 1`..`Peak 4` `Frequency` (whole Hz, 100..20000) and `Gain` (−24..+24 dB in tenths). A write adds no undo step. Anything else → `ExecutorError("param not mapped")`: LogicProMCP refuses Compressor ratio and has no ChromaVerb params, and the Low Cut frequency made no progress on a fresh Channel EQ (`SETUP.md`). |
 
 Plus three utilities:
 - `delete_track(track)` — LogicProMCP `logic_tracks.delete` bound by `track_ref`, then a fresh read must show exactly that track gone. Not a planner tool; it lets live tests clean up after themselves.
@@ -190,7 +190,7 @@ Run it ≥15 times before recording. Capture with Screen Studio; audio via Loopb
 ```
 mixhand/
   SPEC.md                 ← this file
-  SETUP.md                ← permissions, IAC, Mackie, key commands, CC map, Logic version
+  SETUP.md                ← permissions, IAC, Mackie, key commands, plugin-param map, Logic version
   pyproject.toml
   mixhand/
     cli.py
