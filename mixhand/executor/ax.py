@@ -189,6 +189,7 @@ on run argv
     set {stripName, category, plugin} to items 1 thru 3 of argv
     set formats to items 4 thru -1 of argv
     set area to my mixerStrips()
+    considering case
     tell application "System Events" to tell process "Logic Pro"
         set strips to {}
         repeat with s in UI elements of area
@@ -198,7 +199,7 @@ on run argv
         set slots to buttons of (item 1 of strips) whose description is "audio plug-in"
         if (count of slots) is not 1 then error "found " & (count of slots) & " empty insert slots on " & stripName
         set slot to item 1 of slots
-        if (count of menus of area) > 0 then error "a plug-in menu is already open in the Mixer"
+        if (count of menus of area) > 0 then error "a plug-in menu is already open in the Mixer; close it and run again"
         set opener to missing value
         repeat with a in actions of slot
             if name of a starts with "Name:Open plug-in menu" then set opener to contents of a
@@ -231,14 +232,17 @@ on run argv
             perform action "AXCancel" of m
             error failure
         end try
+        set chosen to title of leaf
         perform action "AXPick" of leaf
+        return chosen
     end tell
+    end considering
 end run
 """
 
 
-def pick_plugin(strip: str, category: str, plugin: str, formats: tuple[str, ...]) -> None:
-    _run(PICK_PLUGIN, f"picking {category} > {plugin} on {strip}", strip, category, plugin, *formats)
+def pick_plugin(strip: str, category: str, plugin: str, formats: tuple[str, ...]) -> str:
+    return _run(PICK_PLUGIN, f"picking {category} > {plugin} on {strip}", strip, category, plugin, *formats)
 
 
 def require_mixer() -> None:
@@ -257,10 +261,11 @@ def set_track_name(position: int, current: str, wanted: str) -> None:
     _run(SET_TRACK_NAME, f"setting track {position}'s name", str(position), current, wanted)
 
 
-def _run(script: str, what: str, *args: str) -> None:
+def _run(script: str, what: str, *args: str) -> str:
     try:
         done = subprocess.run(["osascript", "-e", script, *args], capture_output=True, text=True, timeout=CLICK_WITHIN_S)
     except subprocess.TimeoutExpired as e:
         raise ExecutorError(f"{what} did not finish within {CLICK_WITHIN_S:g}s") from e
     if done.returncode != 0:
         raise ExecutorError(f"{what} failed: {done.stderr.strip()}")
+    return done.stdout.strip()

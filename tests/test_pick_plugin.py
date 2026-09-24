@@ -1,5 +1,5 @@
 import pytest
-from conftest import inventory, slot, tracks
+from conftest import PROJECT, inventory, slot, tracks
 
 from mixhand.executor import ExecutorError
 from mixhand.executor.logicpro import LogicPro
@@ -11,7 +11,9 @@ BEFORE = inventory(slot(0, "Channel EQ"), slot(1))
 @pytest.fixture(autouse=True)
 def menus(monkeypatch):
     done = {"picked": [], "clicked": []}
-    monkeypatch.setattr("mixhand.executor.primitives.pick_plugin", lambda *path: done["picked"].append(path))
+    monkeypatch.setattr(
+        "mixhand.executor.primitives.pick_plugin", lambda *path: done["picked"].append(path) or "Mono->Stereo"
+    )
     monkeypatch.setattr("mixhand.executor.primitives.click_menu", lambda *path: done["clicked"].append(path))
     monkeypatch.setattr("mixhand.executor.primitives.SETTLES_WITHIN_S", 0.3)
     return done
@@ -35,7 +37,7 @@ def test_a_plugin_logicpromcp_cannot_insert_is_picked_from_the_menu_and_read_bac
         result = insert_plugin(logic, "Lead Vocal", plugin)
 
     assert result.ok and result.verified
-    assert result.detail == f"Inserted {plugin} on Lead Vocal slot 1"
+    assert result.detail == f"Inserted {plugin} (Mono->Stereo) on Lead Vocal slot 1"
     assert menus["picked"] == [("Lead Vocal", category, plugin, ("Stereo", "Mono->Stereo"))]
     assert menus["clicked"] == [HIDE_PLUGIN_WINDOWS]
     assert calls(fake, "logic_plugins.insert_verified") == []
@@ -96,6 +98,21 @@ def test_anything_but_the_plugin_added_on_the_empty_slot_is_not_confirmed(fake, 
         insert_plugin(logic, "Lead Vocal", "ChromaVerb")
 
     assert menus["clicked"] == []
+
+
+def test_a_project_switched_during_the_pick_is_not_confirmed(fake, menus):
+    fake.serve(
+        resources={
+            "logic://tracks": [tracks("Adlib", "Lead Vocal")],
+            "logic://project/info": [{"data": {"filePath": PROJECT}}, {"data": {"filePath": "/Users/me/Music/Real Song.logicx"}}],
+        },
+        tools={"logic_plugins.get_inventory": [BEFORE, BEFORE, inventory(slot(0, "Channel EQ"), slot(1, "ChromaVerb"), slot(2))]},
+    )
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="front project changed.*check both"):
+        insert_plugin(logic, "Lead Vocal", "ChromaVerb")
+
+    assert menus["clicked"] == []
+    assert fake.log()[-1]["event"] == "insert_plugin.start"
 
 
 def test_a_plugin_window_left_open_does_not_undo_a_confirmed_insert(fake, monkeypatch):

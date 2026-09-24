@@ -131,7 +131,7 @@ def _insert_once(logic: LogicPro, project: str, index: int, track: str, plugin: 
 def _pick_once(logic: LogicPro, track: str, plugin: str, before: list[dict], slot: int) -> ActionResult:
     log("insert_plugin.start", track=track, plugin=plugin, slot=slot, via="menu")
     try:
-        pick_plugin(track, *PLUGIN_MENU[plugin], PLUGIN_FORMATS)
+        chosen = pick_plugin(track, *PLUGIN_MENU[plugin], PLUGIN_FORMATS)
     except ExecutorError as e:
         log("insert_plugin.refused", track=track, plugin=plugin, slot=slot, error=str(e))
         raise ExecutorError(f"{e}; check {track} in the Mixer and undo 1 only if {plugin} is on it") from e
@@ -151,12 +151,16 @@ def _pick_once(logic: LogicPro, track: str, plugin: str, before: list[dict], slo
         raise ExecutorError(
             f"picking {plugin} left {track!r} with {landed}, not {plugin} added on slot {slot}; check Logic before undoing"
         )
-    log("insert_plugin.done", track=track, plugin=plugin, slot=slot, verified=True, via="menu")
+    try:
+        logic.require_project()
+    except ExecutorError as e:
+        raise ExecutorError(f"{e}; the front project changed while {plugin} was picked, so check both before undoing") from e
+    log("insert_plugin.done", track=track, plugin=plugin, slot=slot, format=chosen, verified=True, via="menu")
     try:
         click_menu(*HIDE_PLUGIN_WINDOWS)
     except ExecutorError as e:
         log("insert_plugin.window_left_open", track=track, plugin=plugin, error=str(e))
-    return ActionResult(ok=True, detail=f"Inserted {plugin} on {track} slot {slot}", verified=True)
+    return ActionResult(ok=True, detail=f"Inserted {plugin} ({chosen}) on {track} slot {slot}", verified=True)
 
 
 def set_volume(logic: LogicPro, track: str, db: float) -> ActionResult:

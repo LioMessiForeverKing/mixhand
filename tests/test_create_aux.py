@@ -82,7 +82,7 @@ def test_a_plugin_mixhand_cannot_insert_is_refused_before_anything_is_touched(fa
 
 def test_an_aux_is_given_chromaverb_from_the_plugin_menu(fake, mixer, names, monkeypatch):
     picked = []
-    monkeypatch.setattr("mixhand.executor.primitives.pick_plugin", lambda *path: picked.append(path))
+    monkeypatch.setattr("mixhand.executor.primitives.pick_plugin", lambda *path: picked.append(path) or "Mono->Stereo")
     monkeypatch.setattr("mixhand.executor.primitives.click_menu", lambda *path: None)
     fake.serve(
         resources={"logic://tracks": [listing(*step) for step in [[VOCAL], [VOCAL, NEW], [VOCAL, NEW], [VOCAL, NAMED]]]},
