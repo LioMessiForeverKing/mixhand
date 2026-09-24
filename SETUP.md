@@ -173,8 +173,8 @@ Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate 
 - `set_plugin_param` wraps LogicProMCP's `set_param_verified` and `set_eq_band_verified`, which open
   the plugin's window, write, read the value back in Logic's own text, close the window and roll
   back a write that did not land. SPEC first planned MIDI CC through Controller Assignments, which
-  could not read anything back. Mixhand binds the write to the plugin's `plugin_insert_ref` and
-  checks the text Logic shows. Measured on 12.3.1:
+  could not read anything back. Mixhand binds the write to the track's `track_ref`, LogicProMCP
+  checks the plugin in the slot, and Mixhand checks the text Logic shows. Measured on 12.3.1:
   - Compressor Threshold reads `60 %`, a normalized 0..100; AX shows no dB. Ratio is refused by
     LogicProMCP, which measured its slider not moving.
   - Channel EQ gain is compared as text, and LogicProMCP writes 3 as `+3 dB` while Logic shows

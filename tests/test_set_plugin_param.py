@@ -25,7 +25,7 @@ def written(fake):
     return [c for c in fake.calls() if c["call"] != "logic_plugins.get_inventory"]
 
 
-def test_compressor_threshold_reaches_logicpromcp_bound_to_the_plugin_it_names(fake):
+def test_compressor_threshold_reaches_logicpromcp_bound_to_the_track_it_names(fake):
     serve(fake, "set_param_verified", landed("60 %"))
     with LogicPro.from_env() as logic:
         result = set_plugin_param(logic, "Lead Vocal", "Compressor", "Threshold", 60)
@@ -37,7 +37,7 @@ def test_compressor_threshold_reaches_logicpromcp_bound_to_the_plugin_it_names(f
     assert call["params"] == {
         "track": 1,
         "insert": 0,
-        "target_ref": "ins_0",
+        "target_ref": "trk_Lead Vocal",
         "mode": "duplicate_applyback",
         "project_expected_path": PROJECT,
         "plugin": "Compressor",
@@ -59,7 +59,7 @@ def test_eq_gain_is_walked_by_raw_position_and_confirmed_by_logics_own_text(fake
 
     assert result.detail == f"Set Lead Vocal's Channel EQ Peak 1 Gain to {shown} (asked {db:g} dB; undo does not restore it)"
     [call] = written(fake)
-    assert call["params"]["target_ref"] == "ins_1"
+    assert call["params"]["insert"] == 1
     assert {k: call["params"][k] for k in ("band", "parameter", "value", "unit")} == {
         "band": "Peak 1",
         "parameter": "Gain",
@@ -150,10 +150,11 @@ def test_a_readback_showing_another_value_is_not_reported_as_set(fake):
             {"write_attempted": True, "rollback_succeeded": True, "last_observed_display": "98.5 Hz"},
             "Logic stopped at 98.5 Hz, and it was put back where it was",
         ),
+        ({"write_attempted": True, "rollback_succeeded": True}, "; it was put back where it was"),
         ({"write_attempted": True, "rollback_succeeded": False}, "may have moved, and undo does not restore it"),
         ({"error": "window_open_failed"}, "may have moved"),
     ],
-    ids=["before-writing", "rolled-back", "rollback-failed", "unknown"],
+    ids=["before-writing", "rolled-back", "rolled-back-unread", "rollback-failed", "unknown"],
 )
 def test_a_refused_write_says_only_what_it_knows_about_the_plugin(fake, payload, said):
     serve(fake, "set_eq_band_verified", refused(**payload))

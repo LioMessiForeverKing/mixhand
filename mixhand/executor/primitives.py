@@ -252,12 +252,12 @@ def _move(logic: LogicPro, command: str, track: str, contract: float, target: in
 def set_plugin_param(logic: LogicPro, track: str, plugin: str, param: str, value: float) -> ActionResult:
     command, params, wanted, unit = _plugin_param(plugin, param, value)
     project = logic.require_project()
-    index = track_index(logic, track)
+    index, entry = _track(logic, track)
+    if not entry.get("track_ref"):
+        raise ExecutorError(f"Logic gave no track_ref for {track!r}, so the write could not be bound to it")
     found = [s for s in inserts(logic, index, track) if s["name"] == plugin]
     if len(found) != 1:
         raise ExecutorError(f"{track!r} has {len(found)} {plugin} plugins, not one")
-    if not found[0].get("plugin_insert_ref"):
-        raise ExecutorError(f"Logic gave no plugin_insert_ref for {track}'s {plugin}, so the write could not be bound to it")
     log("set_plugin_param.start", track=track, plugin=plugin, param=param, requested=value, slot=found[0]["insert"])
     try:
         result = logic.call(
@@ -265,7 +265,7 @@ def set_plugin_param(logic: LogicPro, track: str, plugin: str, param: str, value
             command,
             track=index,
             insert=found[0]["insert"],
-            target_ref=found[0]["plugin_insert_ref"],
+            target_ref=entry["track_ref"],
             mode="duplicate_applyback",
             project_expected_path=project,
             **params,
@@ -325,8 +325,10 @@ def _plugin_param(plugin: str, param: str, value: float) -> tuple[str, dict, str
 def _left_as(payload: dict, track: str, plugin: str, param: str) -> str:
     if payload.get("write_attempted") is False:
         return "nothing changed"
+    if payload.get("rollback_succeeded") is True and payload.get("last_observed_display"):
+        return f"Logic stopped at {payload['last_observed_display']}, and it was put back where it was"
     if payload.get("rollback_succeeded") is True:
-        return f"Logic stopped at {payload.get('last_observed_display')}, and it was put back where it was"
+        return "it was put back where it was"
     return f"{track}'s {plugin} {param} may have moved, and undo does not restore it: check it in the plugin"
 
 

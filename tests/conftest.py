@@ -18,7 +18,7 @@ def tracks(*names, readable=True):
 
 
 def slot(insert, name=None):
-    return {"insert": insert, "name": name, "occupied": name is not None, "plugin_insert_ref": f"ins_{insert}" if name else None}
+    return {"insert": insert, "name": name, "occupied": name is not None}
 
 
 def inventory(*slots):
