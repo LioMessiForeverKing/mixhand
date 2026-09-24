@@ -143,8 +143,22 @@ Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate 
   nests the same way is assumed, not yet seen live.
 - A new send starts at −∞, and the aux's own fader does too, so it is silent until both are raised.
   The send knob takes an `AXValue` from 0 to 2,130,706,432 and reads back Logic's dB in
-  `AXValueDescription`, but a write lands on a coarser grid than it asks for, and knob writes made an
-  undo step each in one run and none in another. That is `set_send_level`'s to pin down.
+  `AXValueDescription`, but each write moves it one step toward the value written, however far that
+  is: 2 dB below −48 dB, 1 dB down to −48 dB, 0.1 dB from −6 dB up. So `set_send_level` steps it
+  inside one `osascript` (−∞ to 0 dB is 127 steps, under 3 s) until it reads within half a step of
+  the level asked: tenths from −6 dB, whole dB below. Where it lands depends on the direction it came
+  from (up lands on −8, −7; down from −6 lands on −7.1, −8.1), so below −6 dB it can read 0.1 dB off.
+  The knob is not inside its send's `Bus N` group but beside it, so it is matched to that row by
+  position. Knob writes make no undo step, in one script or many, fast or slow, straight after the
+  send or after another edit, and neither do LogicProMCP's volume and pan moves: undoing *Change Send
+  in Channel Strip* removes the send with its level. `set_send_level` names the level it replaced
+  instead. −60..0 dB, as SPEC §6 bounds a send.
+- After a run that creates and then undoes an aux, Logic can stop answering Apple events for 100 to
+  more than 400 s while System Events still reach it. Meanwhile LogicProMCP reports the front
+  project as `None`, so every primitive refuses, and the Edit menu and the Mixer can show state
+  from before the last edits, so an Undo title read then cannot be trusted. Wait for
+  `tell application "Logic Pro" to get name of front document` to answer before the next live run;
+  once, only a restart of Logic cleared it.
 
 - LogicProMCP speaks volume as a 0..1 contract, never dB. `mixhand/executor/fader.py` holds
   Logic's dB at each of the fader's 234 raw positions, read off the fader's AX value text on
