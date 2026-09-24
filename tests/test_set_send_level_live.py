@@ -15,7 +15,7 @@ pytestmark = [
 ]
 
 SECOND = "Mixhand Aux 2"
-LEVELS = [-12, -3.5, -40, 0, -60, -6, -7, -24.5, -0.1, -52]
+LEVELS = [-12, -3.5, -40, 0, -60, -6, -7, -24.5, -0.1, -52, -3, -6.3]
 PROJECT_WITHIN_S = 120
 
 
@@ -24,7 +24,7 @@ def tolerance(db):
 
 
 def near(level, db):
-    return abs(float(level) - round(db if db >= -6 else round(db), 1)) <= tolerance(db) + 1e-9
+    return abs(float(level) - round(db if db >= -6 or round(db) >= -6 else round(db), 1)) <= tolerance(db) + 1e-9
 
 
 # After an aux is undone, LogicProMCP can report no front project for a minute or more (SETUP.md).

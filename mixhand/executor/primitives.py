@@ -574,13 +574,14 @@ def set_send_level(logic: LogicPro, track: str, aux: str, db: float) -> ActionRe
         ) from e
     try:
         seen = read_send_level(track, bus)
-        _send_bus(routes(), track, aux)
+        still = _send_bus(routes(), track, aux)
         logic.require_project()
     except ExecutorError as e:
         raise ExecutorError(f"{e}; {track}'s send to {aux} was moved from {was} dB but could not be read back: check it in the Mixer") from e
-    if abs(_tenths(seen) - target) > tolerance:
+    if still != bus or abs(_tenths(seen) - target) > tolerance:
         raise ExecutorError(
-            f"{track}'s send to {aux} reads {seen} dB after stepping to {landed} dB; it read {was} dB before: check it in the Mixer"
+            f"{track}'s send on Bus {bus} reads {seen} dB after stepping to {landed} dB, and {aux} listens on Bus {still}; "
+            f"it read {was} dB before: check it in the Mixer"
         )
     log("set_send_level.done", track=track, aux=aux, bus=bus, requested=db, was=was, level=seen, steps=steps, verified=True)
     return ActionResult(
@@ -602,7 +603,7 @@ def _send_grid(db: float) -> tuple[int, int]:
     if tenths >= -60:
         return tenths, 0
     whole = round(db) * 10
-    return whole, 5 if whole >= -480 else 10
+    return whole, 0 if whole >= -60 else 5 if whole >= -480 else 10
 
 
 def _tenths(level: str) -> float:

@@ -57,7 +57,7 @@ def test_a_send_already_at_the_level_is_not_moved(fake, knob):
 
 @pytest.mark.parametrize(
     "db, target, tolerance",
-    [(0, 0, 0), (-3.46, -35, 0), (-6.04, -60, 0), (-6.3, -60, 5), (-12.4, -120, 5), (-48, -480, 5), (-52.6, -530, 10), (-60, -600, 10)],
+    [(0, 0, 0), (-3.46, -35, 0), (-6.04, -60, 0), (-6.3, -60, 0), (-6.6, -70, 5), (-12.4, -120, 5), (-48, -480, 5), (-52.6, -530, 10), (-60, -600, 10)],
 )
 def test_the_target_is_as_fine_as_the_knob_steps_there(fake, knob, db, target, tolerance):
     serve(fake)
@@ -118,8 +118,9 @@ def test_a_step_that_fails_says_where_the_send_was_and_that_undo_cannot_restore_
     [
         (SENT, "-11.0"),
         (mixer(strip("Lead Vocal", sends=("Bus 3",)), strip("Verb", inputs=("Bus 4",))), "-12.0"),
+        (mixer(strip("Lead Vocal", sends=("Bus 3", "Bus 4")), strip("Verb", inputs=("Bus 4",))), "-12.0"),
     ],
-    ids=["level-moved-again", "route-changed"],
+    ids=["level-moved-again", "route-changed", "aux-moved-to-another-send"],
 )
 def test_a_send_that_does_not_read_back_as_stepped_is_not_confirmed(fake, knob, after, level):
     serve(fake)
