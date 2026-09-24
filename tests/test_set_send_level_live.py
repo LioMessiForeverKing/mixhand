@@ -19,12 +19,10 @@ LEVELS = [-12, -3.5, -40, 0, -60, -6, -7, -24.5, -0.1, -52, -3, -6.3]
 PROJECT_WITHIN_S = 120
 
 
-def tolerance(db):
-    return 0.05 if db >= -6 else 0.5 if db >= -48 else 1.0
-
-
 def near(level, db):
-    return abs(float(level) - round(db if db >= -6 or round(db) >= -6 else round(db), 1)) <= tolerance(db) + 1e-9
+    target = round(db, 1) if round(db * 10) >= -60 else round(db)
+    tolerance = 0.05 if target >= -6 else 0.5 if target >= -48 else 1.0
+    return abs(float(level) - target) <= tolerance
 
 
 # After an aux is undone, LogicProMCP can report no front project for a minute or more (SETUP.md).
