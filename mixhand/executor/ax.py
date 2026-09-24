@@ -3,6 +3,7 @@ import subprocess
 from mixhand.executor import ExecutorError
 
 CLICK_WITHIN_S = 10.0
+STEP_WITHIN_S = 30.0
 ESCAPE = "key code 53"
 
 
@@ -328,6 +329,102 @@ end run
 """
 
 
+# A send's knob is not inside its row's group, so it is matched to the row by where it sits.
+# Each write moves the knob one step toward the value written, so the far ends step it up or down.
+SEND_KNOB = MIXER_STRIPS + """
+on sendKnob(stripName, busName)
+    set area to my mixerStrips()
+    considering case
+    tell application "System Events" to tell process "Logic Pro"
+        set strips to {}
+        repeat with s in UI elements of area
+            if (value of text fields of s whose description is "name") is {stripName} then set end of strips to contents of s
+        end repeat
+        if (count of strips) is not 1 then error "found " & (count of strips) & " Mixer strips named " & stripName
+        set s to item 1 of strips
+        set sendRows to {}
+        repeat with g in groups of s
+            if description of g is busName and (count of (checkboxes of g whose description is "bypass")) is 1 then set end of sendRows to contents of g
+        end repeat
+        if (count of sendRows) is not 1 then error "found " & (count of sendRows) & " sends on " & busName & " on " & stripName
+        set {rowX, rowY} to position of item 1 of sendRows
+        set {rowW, rowH} to size of item 1 of sendRows
+        set knobs to {}
+        repeat with k in (sliders of s whose description is "send knob")
+            set {knobX, knobY} to position of k
+            set {knobW, knobH} to size of k
+            set centreY to knobY + knobH / 2
+            if centreY >= rowY and centreY <= rowY + rowH then set end of knobs to contents of k
+        end repeat
+        if (count of knobs) is not 1 then error "found " & (count of knobs) & " send knobs beside " & stripName & "'s send on " & busName
+        return item 1 of knobs
+    end tell
+    end considering
+end sendKnob
+
+on level(k)
+    tell application "System Events" to tell process "Logic Pro"
+        repeat 20 times
+            try
+                set d to value of attribute "AXValueDescription" of k
+                if d is not missing value and d is not "" then return d
+            end try
+            delay 0.05
+        end repeat
+    end tell
+    error "the send knob gave no level"
+end level
+
+on tenths(d)
+    if d is "-∞" then return -10000
+    set AppleScript's text item delimiters to "."
+    set parts to text items of d
+    set AppleScript's text item delimiters to ""
+    if (count of parts) is not 2 or length of (item 2 of parts) is not 1 then error "the send knob reads " & d & ", not a level in dB"
+    return ((item 1 of parts) & (item 2 of parts)) as integer
+end tenths
+"""
+
+READ_SEND_LEVEL = SEND_KNOB + """
+on run {stripName, busName}
+    return my level(my sendKnob(stripName, busName))
+end run
+"""
+
+STEP_SEND_LEVEL = SEND_KNOB + """
+on run {stripName, busName, target, tolerance, limit}
+    set {target, tolerance, limit} to {target as integer, tolerance as integer, limit as integer}
+    set k to my sendKnob(stripName, busName)
+    set was to my level(k)
+    set d to was
+    set steps to 0
+    set still to 0
+    repeat
+        set gap to (my tenths(d)) - target
+        if gap <= tolerance and gap >= -tolerance then exit repeat
+        if steps >= limit then error "the send still read " & d & " dB after " & steps & " steps"
+        tell application "System Events" to tell process "Logic Pro"
+            if gap < 0 then
+                set value of k to 2.130706432E+9
+            else
+                set value of k to 0
+            end if
+        end tell
+        set steps to steps + 1
+        set now to my level(k)
+        if now is d then
+            set still to still + 1
+            if still >= 3 then error "the send knob stopped moving at " & d & " dB"
+        else
+            set still to 0
+        end if
+        set d to now
+    end repeat
+    return was & tab & d & tab & steps
+end run
+"""
+
+
 def pick_plugin(strip: str, category: str, plugin: str, formats: tuple[str, ...]) -> str:
     return _run(PICK_PLUGIN, f"picking {category} > {plugin} on {strip}", strip, category, plugin, *formats)
 
@@ -338,6 +435,19 @@ def read_routes() -> str:
 
 def pick_route(strip: str, slot_help: str, slot: str, path: tuple[str, ...]) -> None:
     _run(PICK_ROUTE, f"picking {' > '.join(path)} on {strip}'s {slot_help.lower()}", strip, slot_help, slot, *path)
+
+
+def read_send_level(strip: str, bus: int) -> str:
+    return _run(READ_SEND_LEVEL, f"reading {strip}'s send on Bus {bus}", strip, f"Bus {bus}")
+
+
+def step_send_level(strip: str, bus: int, target: int, tolerance: int, limit: int) -> tuple[str, str, int]:
+    out = _run(
+        STEP_SEND_LEVEL, f"moving {strip}'s send on Bus {bus}", strip, f"Bus {bus}", str(target), str(tolerance), str(limit),
+        timeout=STEP_WITHIN_S,
+    )
+    was, landed, steps = out.split("\t")
+    return was, landed, int(steps)
 
 
 def require_mixer() -> None:
@@ -356,11 +466,11 @@ def set_track_name(position: int, current: str, wanted: str) -> None:
     _run(SET_TRACK_NAME, f"setting track {position}'s name", str(position), current, wanted)
 
 
-def _run(script: str, what: str, *args: str) -> str:
+def _run(script: str, what: str, *args: str, timeout: float = CLICK_WITHIN_S) -> str:
     try:
-        done = subprocess.run(["osascript", "-e", script, *args], capture_output=True, text=True, timeout=CLICK_WITHIN_S)
+        done = subprocess.run(["osascript", "-e", script, *args], capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as e:
-        raise ExecutorError(f"{what} did not finish within {CLICK_WITHIN_S:g}s") from e
+        raise ExecutorError(f"{what} did not finish within {timeout:g}s") from e
     if done.returncode != 0:
         raise ExecutorError(f"{what} failed: {done.stderr.strip()}")
     return done.stdout.strip()

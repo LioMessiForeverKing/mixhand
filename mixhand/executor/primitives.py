@@ -11,9 +11,11 @@ from mixhand.executor.ax import (
     pick_plugin,
     pick_route,
     read_routes,
+    read_send_level,
     require_inspector,
     require_mixer,
     set_track_name,
+    step_send_level,
 )
 from mixhand.executor.fader import DB_AT_RAW, PAN_CENTRE_RAW, pan_contract, raw_nearest, volume_contract
 from mixhand.executor.logicpro import POLL_S, LogicPro
@@ -42,6 +44,9 @@ BUS_PAGE = 32
 INPUT_SLOT = "Input slot"
 SEND_SLOT = "Send slot"
 EMPTY_SEND = "send button"
+SEND_DB_MIN = -60.0
+SEND_DB_MAX = 0.0
+SEND_STEPS = 300
 
 
 def track_index(logic: LogicPro, track: str) -> int:
@@ -542,6 +547,72 @@ def add_send(logic: LogicPro, track: str, aux: str) -> ActionResult:
         ) from e
     log("add_send.done", track=track, aux=aux, bus=bus, verified=True)
     return ActionResult(ok=True, detail=f"Sent {track} to {aux} on Bus {bus}; undo {steps + 1} removes it", verified=True)
+
+
+def set_send_level(logic: LogicPro, track: str, aux: str, db: float) -> ActionResult:
+    if not SEND_DB_MIN <= db <= SEND_DB_MAX:
+        raise ExecutorError(f"send level {db:g} dB is outside {SEND_DB_MIN:g}..{SEND_DB_MAX:g} dB")
+    target, tolerance = _send_grid(db)
+    logic.require_project()
+    tracks = logic.tracks()
+    _named(tracks, track)
+    _, entry = _named(tracks, aux)
+    if entry.get("type") != "aux":
+        raise ExecutorError(f"{aux!r} is not an aux, so {track!r} has no send to it")
+    bus = _send_bus(routes(), track, aux)
+    was = read_send_level(track, bus)
+    if abs(_tenths(was) - target) <= tolerance:
+        log("set_send_level.skipped", track=track, aux=aux, bus=bus, requested=db, level=was)
+        return ActionResult(ok=True, detail=f"{track}'s send to {aux} is already at {was} dB", verified=True)
+    log("set_send_level.start", track=track, aux=aux, bus=bus, requested=db, was=was)
+    try:
+        _, landed, steps = step_send_level(track, bus, target, tolerance, SEND_STEPS)
+    except ExecutorError as e:
+        raise ExecutorError(
+            f"{e}; {track}'s send to {aux} read {was} dB before and may have moved, and undo does not restore it: "
+            "check it in the Mixer"
+        ) from e
+    try:
+        seen = read_send_level(track, bus)
+        still = _send_bus(routes(), track, aux)
+        logic.require_project()
+    except ExecutorError as e:
+        raise ExecutorError(f"{e}; {track}'s send to {aux} was moved from {was} dB but could not be read back: check it in the Mixer") from e
+    if still != bus or abs(_tenths(seen) - target) > tolerance:
+        raise ExecutorError(
+            f"{track}'s send on Bus {bus} reads {seen} dB after stepping to {landed} dB, and {aux} listens on Bus {still}; "
+            f"it read {was} dB before: check it in the Mixer"
+        )
+    log("set_send_level.done", track=track, aux=aux, bus=bus, requested=db, was=was, level=seen, steps=steps, verified=True)
+    return ActionResult(
+        ok=True, detail=f"Set {track}'s send to {aux} to {seen} dB (asked {db:g} dB, was {was} dB; undo does not restore it)", verified=True
+    )
+
+
+def _send_bus(strips: list[Strip], track: str, aux: str) -> int:
+    source, ret = _strip(strips, track), _strip(strips, aux)
+    bus = _bus(ret.inputs[0]) if len(ret.inputs) == 1 else None
+    if bus is None or f"Bus {bus}" not in source.sends:
+        raise ExecutorError(f"{track!r} does not send to {aux!r}; add the send first")
+    return bus
+
+
+# The knob steps 0.1 dB from -6 dB up, 1 dB down to -48 dB and 2 dB below, and within half a step always lands.
+def _send_grid(db: float) -> tuple[int, int]:
+    tenths = round(db * 10)
+    if tenths >= -60:
+        return tenths, 0
+    whole = round(db) * 10
+    return whole, 0 if whole >= -60 else 5 if whole >= -480 else 10
+
+
+def _tenths(level: str) -> float:
+    if level == "-∞":
+        return float("-inf")
+    try:
+        return round(float(level) * 10)
+    except ValueError as e:
+        raise ExecutorError(f"the send knob reads {level!r}, not a level in dB") from e
 
 
 # Logic rebuilds the Mixer's strips after a route changes, and a strip read mid-rebuild fails.
