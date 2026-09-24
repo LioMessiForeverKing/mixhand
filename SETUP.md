@@ -124,7 +124,8 @@ Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate 
   `get_inventory` by name, and the plug-in window that opens is closed with Window › Hide All
   Plug-in Windows. Logic labels a Stereo Delay slot `St-Delay`, so the readback expects that. Any
   other plugin is refused before anything is created. The menu names are English. 30 of 30 live
-  aux runs passed, 10 each with Channel EQ, ChromaVerb and Stereo Delay.
+  aux runs passed, 10 each with Channel EQ, ChromaVerb and Stereo Delay, and the 20 menu runs
+  passed again after review; each picked *Mono->Stereo*, and the result names the format picked.
 - An aux strip left without a track, for example by a run killed between the two clicks, is invisible
   to LogicProMCP, so `create_aux` cannot see it. Undo it, or delete the strip in the Mixer.
 
