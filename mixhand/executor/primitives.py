@@ -539,24 +539,29 @@ def create_aux(logic: LogicPro, name: str, plugin: str) -> ActionResult:
 
 def _new_aux(logic: LogicPro, before: list[dict]) -> tuple[int, str, str]:
     refs = [t.get("track_ref") for t in before]
+    names = [t["name"] for t in before]
     deadline = time.monotonic() + SETTLES_WITHIN_S
     while True:
         after = logic.tracks()
-        added = [i for i, t in enumerate(after) if t.get("track_ref") not in refs]
-        if added:
+        if len(after) != len(before):
             break
         if time.monotonic() >= deadline:
             raise ExecutorError(f"no aux track appeared within {SETTLES_WITHIN_S:g}s; check the Mixer before undoing")
         time.sleep(POLL_S)
-    kept = [t.get("track_ref") for i, t in enumerate(after) if i not in added]
-    if len(added) != 1 or kept != refs or after[added[0]].get("type") != "aux":
+    at = next((i for i, name in enumerate(names) if after[i]["name"] != name), len(names))
+    # Logic puts the aux's track after the selected one, and LogicProMCP reissues the refs of every track below it.
+    if (
+        [t["name"] for i, t in enumerate(after) if i != at] != names
+        or [t.get("track_ref") for t in after[:at]] != refs[:at]
+        or after[at].get("type") != "aux"
+    ):
         raise ExecutorError(
             f"creating the aux left {[t['name'] for t in after]}, not one new aux track; check Logic before undoing"
         )
-    new = after[added[0]]
+    new = after[at]
     if not new.get("track_ref"):
         raise ExecutorError("Logic gave no track_ref for the new aux, so it could not be bound; check Logic before undoing")
-    return added[0], new["track_ref"], new["name"]
+    return at, new["track_ref"], new["name"]
 
 
 def _rename_aux(logic: LogicPro, index: int, ref: str, current: str, name: str) -> None:

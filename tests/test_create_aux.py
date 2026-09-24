@@ -171,8 +171,13 @@ def test_an_aux_track_that_never_appears_says_so(fake, names):
 
 @pytest.mark.parametrize(
     "after",
-    [[VOCAL, ("Audio 2", "trk_b", "audio")], [VOCAL, NEW, ("Aux 2", "trk_c", "aux")], [NEW, ("Lead Vocal", "trk_z", "audio")]],
-    ids=["not-an-aux", "two-new", "others-changed"],
+    [
+        [VOCAL, ("Audio 2", "trk_b", "audio")],
+        [VOCAL, NEW, ("Aux 2", "trk_c", "aux")],
+        [NEW, ("Lead Vox", "trk_z", "audio")],
+        [("Lead Vocal", "trk_z", "audio"), NEW],
+    ],
+    ids=["not-an-aux", "two-new", "others-renamed", "above-reissued"],
 )
 def test_anything_but_exactly_one_new_aux_is_not_renamed(fake, names, after):
     serve(fake, [[VOCAL], after])
@@ -235,3 +240,16 @@ def test_a_new_aux_without_a_track_ref_is_not_selected(fake, names):
         create_aux(logic, "Verb", "Channel EQ")
 
     assert sent(fake, "logic_tracks.select") == [] and names == []
+
+
+DOUBLE, DOUBLE_MOVED = ("Double", "trk_d", "audio"), ("Double", "trk_e", "audio")
+
+
+def test_an_aux_placed_above_other_tracks_is_created_though_they_are_reissued_refs(fake, mixer, names):
+    serve(fake, [[VOCAL, DOUBLE], [VOCAL, NEW, DOUBLE_MOVED], [VOCAL, NEW, DOUBLE_MOVED], [VOCAL, NAMED, DOUBLE_MOVED]])
+    with LogicPro.from_env() as logic:
+        result = create_aux(logic, "Verb", "Channel EQ")
+
+    assert result.verified and result.undo_steps == 4
+    assert sent(fake, "logic_tracks.select") == [{"index": 1, "target_ref": "trk_b"}]
+    assert names == [(2, "Aux 1", "Verb")]
