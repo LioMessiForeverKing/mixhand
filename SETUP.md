@@ -73,8 +73,10 @@ Last, it creates `Mixhand Aux` with Channel EQ, ChromaVerb and Stereo Delay in t
 second call adds nothing, then undoes it one step at a time and checks the fourth undo is *Create
 New Auxiliary Channel Strip* and the session and Edit menu are back where they started, ten times
 each. Then it creates `Mixhand Aux` with ChromaVerb and `Mixhand Delay` with Stereo Delay, checks
-Stereo Delay sits in the second aux's top slot, and undoes all eight steps by title, ten times. If
-it fails partway it says so rather than guessing how many undos to send.
+Stereo Delay sits in the second aux's top slot, and undoes all eight steps by title, ten times. It
+then puts Stereo Delay under an empty slot on `Lead Vocal`, checks ChromaVerb is refused there with
+nothing changed, and undoes five steps, ten times. If it fails partway it says so rather than
+guessing how many undos to send.
 Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate -d`).
 
 ## SPEC §12, answered
@@ -126,8 +128,9 @@ Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate 
   Plug-in Windows. Logic labels a Stereo Delay slot `St-Delay`, so the readback expects that.
   Once any strip holds a plugin, every strip shows a second, clipped empty row, and AX lists it
   before the first, so the pick takes the empty slot highest on the strip. `get_inventory` numbers
-  a plugin's slot from 0 even with an empty slot above it, so the live test checks the Mixer for
-  that gap. Any other plugin is refused before anything is created. The menu names are English. 30 of 30 live
+  a plugin's slot from 0 even with an empty slot above it, and lists plugins out of Mixer order
+  when one fills such a gap, so the readback would confirm the wrong position: the pick refuses a
+  strip with an empty slot above a plugin before opening the menu. Any other plugin is refused before anything is created. The menu names are English. 30 of 30 live
   aux runs passed, 10 each with Channel EQ, ChromaVerb and Stereo Delay, and the 20 menu runs
   passed again after review; each picked *Mono->Stereo*, and the result names the format picked.
 - An aux strip left without a track, for example by a run killed between the two clicks, is invisible

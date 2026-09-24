@@ -201,8 +201,15 @@ on run argv
         set slots to buttons of (item 1 of strips) whose description is "audio plug-in"
         if (count of slots) is 0 then error "found no empty insert slot on " & stripName
         set slot to item 1 of slots
+        set {topmost, lowest} to {item 2 of (position of slot as list), item 2 of (position of slot as list)}
         repeat with b in slots
-            if item 2 of (position of b as list) < item 2 of (position of slot as list) then set slot to contents of b
+            set y to item 2 of (position of b as list)
+            if y < topmost then set {slot, topmost} to {contents of b, y}
+            if y > lowest then set lowest to y
+        end repeat
+        repeat with g in groups of (item 1 of strips)
+            set y to item 2 of (position of g as list)
+            if y > topmost and y < lowest then error stripName & " has an empty insert slot above a plug-in; close the gap in Logic and run again"
         end repeat
         if (count of menus of area) > 0 then error "a plug-in menu is already open in the Mixer; close it and run again"
         set opener to missing value
