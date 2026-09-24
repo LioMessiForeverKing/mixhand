@@ -48,6 +48,9 @@ export MIXHAND_LOGICPROMCP=~/.local/bin/LogicProMCP
 export MIXHAND_PROJECT=~/Music/Logic/testprojectformixhand.logicx
 ```
 
+`mixhand produce` also needs Anthropic credentials: `ANTHROPIC_API_KEY`, or an `ant auth login`
+profile. `MIXHAND_MODEL` picks the planner's model; unset or blank, it is `claude-opus-5`.
+
 `MIXHAND_PROJECT` is the only project Mixhand will touch. Every write and every undo first
 checks that it is the front document, and refuses otherwise. Point it at a copy, never at a
 song you care about. Mixhand never saves.

@@ -70,6 +70,7 @@ def test_an_aux_without_a_bus_is_given_the_lowest_free_one_and_the_track_sends_t
 
     assert result.ok and result.verified
     assert result.detail == "Sent Lead Vocal to Verb on Bus 4; undo 2 removes it"
+    assert result.undo_steps == 2
     assert routed["picks"] == [
         ("Verb", "Input slot", "Input 1", ("Bus", "Bus 4")),
         ("Lead Vocal", "Send slot", "send button", ("Bus", "Bus 4 → Verb")),
@@ -87,6 +88,7 @@ def test_an_aux_already_on_a_bus_keeps_it_and_only_the_send_is_made(fake, routed
         result = add_send(logic, "Lead Vocal", "Verb")
 
     assert result.detail == "Sent Lead Vocal to Verb on Bus 7; undo 1 removes it"
+    assert result.undo_steps == 1
     assert routed["picks"] == [("Lead Vocal", "Send slot", "send button", ("Bus", "Bus 7 → Verb"))]
 
 
@@ -97,6 +99,7 @@ def test_a_second_call_changes_nothing(fake, routed):
         result = add_send(logic, "Lead Vocal", "Verb")
 
     assert result.verified and result.detail == "Lead Vocal already sends to Verb on Bus 1"
+    assert result.undo_steps == 0
     assert routed["picks"] == []
     assert [e["event"] for e in fake.log()] == ["add_send.skipped"]
 

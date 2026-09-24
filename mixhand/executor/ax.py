@@ -435,6 +435,18 @@ on run {stripName, busName, target, tolerance, limit}
 end run
 """
 
+# A menu item's title is only refreshed when its menu opens.
+UNDO_TITLE = """
+tell application "System Events" to tell process "Logic Pro"
+    set edit to menu 1 of menu bar item "Edit" of menu bar 1
+    click menu bar item "Edit" of menu bar 1
+    delay 0.3
+    set undoing to name of menu item 1 of edit
+    perform action "AXCancel" of edit
+    return undoing
+end tell
+"""
+
 
 def pick_plugin(strip: str, category: str, plugin: str, formats: tuple[str, ...]) -> str:
     return _run(PICK_PLUGIN, f"picking {category} > {plugin} on {strip}", strip, category, plugin, *formats)
@@ -459,6 +471,10 @@ def step_send_level(strip: str, bus: int, target: int, tolerance: int, limit: in
     )
     was, landed, steps = out.split("\t")
     return was, landed, int(steps)
+
+
+def undo_title() -> str:
+    return _run(UNDO_TITLE, "reading Logic's Undo menu item")
 
 
 def require_mixer() -> None:

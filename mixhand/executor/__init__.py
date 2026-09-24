@@ -12,3 +12,5 @@ class ActionResult:
     ok: bool
     detail: str
     verified: bool
+    undo_steps: int = 0
+    was: float | str | None = None

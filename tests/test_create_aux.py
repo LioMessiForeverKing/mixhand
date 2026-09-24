@@ -59,6 +59,7 @@ def test_an_aux_is_created_given_a_track_renamed_and_given_its_plugin(fake, mixe
 
     assert result.ok and result.verified
     assert result.detail == "Created aux Verb with Channel EQ; undo 4 removes it"
+    assert result.undo_steps == 4
     assert mixer == [AUX_MENU, AUX_TRACK_MENU]
     assert sent(fake, "logic_tracks.select") == [{"index": 1, "target_ref": "trk_b"}]
     assert names == [(2, "Aux 1", "Verb")]
@@ -96,6 +97,7 @@ def test_an_aux_is_given_chromaverb_from_the_plugin_menu(fake, mixer, names, mon
 
     assert result.verified
     assert result.detail == "Created aux Verb with ChromaVerb; undo 4 removes it"
+    assert result.undo_steps == 4
     assert picked == [("Verb", "Reverb", "ChromaVerb", ("Stereo", "Mono->Stereo"))]
     assert sent(fake, "logic_plugins.insert_verified") == []
 
@@ -107,6 +109,7 @@ def test_a_second_call_creates_nothing_and_leaves_the_plugin_alone(fake, mixer, 
 
     assert result.verified
     assert result.detail == "Aux Verb already exists; Channel EQ is already on Verb slot 0"
+    assert result.undo_steps == 0
     assert mixer == [] and names == []
     assert sent(fake, "logic_plugins.insert_verified") == []
 
@@ -220,6 +223,7 @@ def test_an_aux_asked_for_by_the_name_logic_gives_it_is_not_renamed(fake, names)
 
     assert result.verified
     assert result.detail == "Created aux Aux 1 with Channel EQ; undo 3 removes it"
+    assert result.undo_steps == 3
     assert names == []
     insert = sent(fake, "logic_plugins.insert_verified")
     assert [(i["track"], i["expected_name"]) for i in insert] == [(1, "Aux 1")]

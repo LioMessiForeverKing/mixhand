@@ -38,6 +38,7 @@ def test_a_plugin_logicpromcp_cannot_insert_is_picked_from_the_menu_and_read_bac
 
     assert result.ok and result.verified
     assert result.detail == f"Inserted {plugin} (Mono->Stereo) on Lead Vocal slot 1"
+    assert result.undo_steps == 1
     assert menus["picked"] == [("Lead Vocal", category, plugin, ("Stereo", "Mono->Stereo"))]
     assert menus["clicked"] == [HIDE_PLUGIN_WINDOWS]
     assert calls(fake, "logic_plugins.insert_verified") == []

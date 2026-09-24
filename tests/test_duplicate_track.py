@@ -60,6 +60,7 @@ def test_a_track_is_duplicated_with_its_regions_and_renamed(fake, clicks, names)
 
     assert result.ok and result.verified
     assert result.detail == "Duplicated Lead Vocal to Lead Vocal Double with 1 region"
+    assert result.undo_steps == 2
     assert sent(fake, "select") == [{"index": 0, "target_ref": "trk_a"}]
     assert clicks == [DUPLICATE_MENU]
     assert names == [(2, "Lead Vocal", "Lead Vocal Double")]
