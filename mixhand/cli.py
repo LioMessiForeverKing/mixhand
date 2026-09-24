@@ -1,4 +1,4 @@
-import anthropic
+import openai
 import typer
 
 from mixhand import doctor as doctor_checks
@@ -57,7 +57,7 @@ def produce(
     start_bar: int | None = typer.Option(None, min=1, help="First bar of the section to work on."),
     end_bar: int | None = typer.Option(None, min=2, help="Bar the section ends at."),
 ) -> None:
-    """Have Claude plan the change and carry it out in Logic, one logged action at a time."""
+    """Have the model plan the change and carry it out in Logic, one logged action at a time."""
     selection = _selection(start_bar, end_bar)
     if not prompt.strip():
         raise typer.BadParameter("say what you want done")
@@ -66,7 +66,7 @@ def produce(
             session = read_session(logic, key=(key or "").strip() or None, selection=selection)
             loop.produce(
                 logic,
-                anthropic.Anthropic(),
+                openai.OpenAI(),
                 prompt.strip(),
                 session,
                 text=lambda chunk: typer.echo(chunk, nl=False),
@@ -76,7 +76,7 @@ def produce(
         typer.echo(f"\n{MARKS['fail']} {e}", err=True)
         typer.echo("mixhand undo says what the finished actions left to undo.", err=True)
         raise typer.Exit(1)
-    except (loop.PlannerError, anthropic.APIError) as e:
+    except (loop.PlannerError, openai.APIError) as e:
         typer.echo(f"\n{MARKS['fail']} {e}", err=True)
         typer.echo("mixhand undo reverses what was done.", err=True)
         raise typer.Exit(1)

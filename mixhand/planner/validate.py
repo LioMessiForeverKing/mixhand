@@ -14,7 +14,7 @@ from mixhand.planner.tools import TOOLS
 from mixhand.state.models import Session
 
 MAX_ACTIONS = 14
-FIELDS = {t["name"]: t["input_schema"]["properties"] for t in TOOLS}
+FIELDS = {t["name"]: t["parameters"]["properties"] for t in TOOLS}
 
 
 class InvalidAction(Exception):

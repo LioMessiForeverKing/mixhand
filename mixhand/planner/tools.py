@@ -24,10 +24,11 @@ REASON = {"type": "string", "description": "One sentence, specific to this sessi
 def _tool(name: str, description: str, /, **properties: dict) -> dict:
     properties = {**properties, "reason": REASON}
     return {
+        "type": "function",
         "name": name,
         "description": description,
         "strict": True,
-        "input_schema": {
+        "parameters": {
             "type": "object",
             "properties": properties,
             "required": list(properties),

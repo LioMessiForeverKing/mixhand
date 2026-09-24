@@ -36,7 +36,7 @@ If a task seems to require something out of scope, stop and ask.
 Terminal CLI (Python, rich/textual)
     │  prompt + streamed plan/log
     ▼
-Planner  ──── Anthropic API, tool_use, model $MIXHAND_MODEL (default claude-opus-5) ────
+Planner  ──── OpenAI Responses API, function tools, model $MIXHAND_MODEL (default gpt-6-sol) ────
     │  validated actions (JSON)
     ▼
 Executor ──── Python: pyobjc AX API, osascript/JXA, CGEvent keystrokes, mido→IAC
@@ -122,7 +122,7 @@ Optional audio analysis (only after §9 milestone 4 is done): `analyze_stems(tra
 
 ## 6. Planner
 
-Module: `mixhand/planner/`. Uses the Anthropic Python SDK with `tools=` set to the six primitives, primitives 3 and 5 split into their two calls (`explain` comes with the `explain` command). Streaming on, one tool call per turn, adaptive thinking, server-side refusal fallbacks. The model is `MIXHAND_MODEL`, `claude-opus-5` when unset or blank.
+Module: `mixhand/planner/`. Uses the OpenAI Python SDK's Responses API, because the OpenAI credits are already paid for, with strict function `tools=` set to the six primitives, primitives 3 and 5 split into their two calls (`explain` comes with the `explain` command). Streaming on, one tool call per turn (`parallel_tool_calls=False`). The model is `MIXHAND_MODEL`, `gpt-6-sol` when unset or blank.
 
 System prompt essentials (write in `planner/system_prompt.md`, keep it editable):
 - You are a vocal producer working inside the user's Logic Pro session. You can only act through the provided tools. Stock Logic plugins only, from `available_plugins`.

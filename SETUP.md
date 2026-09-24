@@ -48,8 +48,9 @@ export MIXHAND_LOGICPROMCP=~/.local/bin/LogicProMCP
 export MIXHAND_PROJECT=~/Music/Logic/testprojectformixhand.logicx
 ```
 
-`mixhand produce` also needs Anthropic credentials: `ANTHROPIC_API_KEY`, or an `ant auth login`
-profile. `MIXHAND_MODEL` picks the planner's model; unset or blank, it is `claude-opus-5`.
+`mixhand produce` also needs `OPENAI_API_KEY`, the same key Codex reads from the Keychain:
+`export OPENAI_API_KEY="$(security find-generic-password -a "$USER" -s OPENAI_API_KEY -w)"`.
+`MIXHAND_MODEL` picks the planner's model; unset or blank, it is `gpt-6-sol`.
 
 `MIXHAND_PROJECT` is the only project Mixhand will touch. Every write and every undo first
 checks that it is the front document, and refuses otherwise. Point it at a copy, never at a
