@@ -1,3 +1,5 @@
+import sys
+
 import openai
 import typer
 
@@ -101,7 +103,8 @@ def produce(
         with LogicPro.from_env() as logic:
             session = read_session(logic, key=(key or "").strip() or None, selection=selection)
             started = True
-            saved = loop.produce(logic, client, prompt.strip(), session, text=out.text, line=out.line, follow_up=out.follow_up)
+            follow_up = out.follow_up if _interactive() else lambda: None
+            saved = loop.produce(logic, client, prompt.strip(), session, text=out.text, line=out.line, follow_up=follow_up)
     except ExecutorError as e:
         out.end_line()
         typer.echo(f"{MARKS['fail']} {e}", err=True)
@@ -162,6 +165,10 @@ def undo() -> None:
         raise typer.Exit(1)
     if not clean:
         raise typer.Exit(1)
+
+
+def _interactive() -> bool:
+    return sys.stdin.isatty()
 
 
 def _selection(start_bar: int | None, end_bar: int | None) -> Selection | None:

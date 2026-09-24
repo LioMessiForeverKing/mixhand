@@ -42,7 +42,6 @@ class Plan:
         )
 
     def apply(self, tool: str, args: dict, result: ActionResult) -> None:
-        self.actions += 1
         if tool in ("duplicate_track", "create_aux"):
             name = args.get("new_name") or args["name"]
             self.tracks.add(name)

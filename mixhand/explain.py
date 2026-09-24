@@ -45,6 +45,8 @@ def _run(begin: dict, after) -> Run:
             continue
         if event["event"] in SHOWN:
             run.shown.append(event)
+        if event["event"] == "planner.follow_up":
+            run.end = None
         elif event["event"] == "group.end":
             run.end = event
         elif event["event"] == "group.undo.start":

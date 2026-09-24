@@ -60,18 +60,20 @@ def produce(
     items: list = [{"role": "user", "content": f"{prompt}\n\nThe session, read from Logic just now:\n{as_json(session)}"}]
     group = begin_group(prompt, session.project.path, [c.name for c in session.tracks])
     try:
+        saved = False
         while True:
             try:
                 _run(logic, client, model, plan, group, items, text, line)
             except BaseException as e:
-                end_group(logic, group, failed=None if isinstance(e, (PlannerError, openai.APIError)) else _why(e))
+                if plan.actions or not saved:
+                    end_group(logic, group, failed=None if isinstance(e, (PlannerError, openai.APIError)) else _why(e))
                 raise
             saved = end_group(logic, group)
             prompt = follow_up()
             if prompt is None:
                 return saved
-            resume_group(logic, group)
             log("planner.follow_up", run=group.run, text=prompt)
+            resume_group(logic, group)
             plan.actions = 0
             items.append({"role": "user", "content": prompt})
     except BaseException as e:
@@ -120,6 +122,7 @@ def _run(
                 continue
             refused = 0
             reason = args.pop("reason")
+            plan.actions += 1
             result = EXECUTE[call.name](logic, **args)
             record(group, call.name, args, result)
             plan.apply(call.name, args, result)

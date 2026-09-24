@@ -73,16 +73,19 @@ def _changed(group: Group) -> bool:
 
 # A follow-up extends the run, so an edit made in Logic between turns would be undone as the run's own.
 def resume_group(logic: LogicPro, group: Group) -> None:
-    if group.undo_title_after is None:
-        group.undo_title_before = undo_title()
-        group.tracks_before = logic.track_names()
-        return
-    now = _now(logic)
-    if now != (group.undo_title_after, group.tracks_after, group.routes_after):
+    project = logic.require_project()
+    if not same_path(project, group.project):
+        raise ExecutorError(f"{project} is in front, not {group.project} where this run began; start a new mixhand produce there")
+    if _changed(group):
+        now, then = _now(logic), (group.undo_title_after, group.tracks_after, group.routes_after)
+    else:
+        now, then = (undo_title(), logic.track_names()), (group.undo_title_before, group.tracks_before)
+    if now != then:
         raise ExecutorError(
             f"Logic changed since Mixhand's last reply (its Undo reads {now[0]!r}, and the tracks or routing may differ), "
             "so a follow-up would fold that edit into this run's undo; start a new mixhand produce instead"
         )
+    group.undo_title_after = group.tracks_after = group.routes_after = None
 
 
 def _now(logic: LogicPro) -> tuple[str, list[str], str]:

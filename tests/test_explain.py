@@ -28,6 +28,7 @@ def logic(tmp_path, monkeypatch):
 
     monkeypatch.setattr("mixhand.cli.LogicPro.from_env", from_env)
     monkeypatch.setattr("mixhand.cli.read_session", lambda logic, key, selection: session())
+    monkeypatch.setattr("mixhand.cli._interactive", lambda: True)
     monkeypatch.setattr("mixhand.executor.group.undo_title", lambda: "Undo Create Tracks")
     monkeypatch.setattr("mixhand.executor.group.read_routes", lambda: "Lead Vocal\tInput 1\tStereo Out\t\t8")
     monkeypatch.setattr("mixhand.executor.group.undo", lambda logic, n: None)
@@ -161,3 +162,19 @@ def test_a_broken_line_inside_the_last_run_is_refused_but_one_before_it_is_not(l
 
     produce(monkeypatch, doubled(2), reply("Done."))
     assert explain().stdout.splitlines()[1] == "I'll double the lead, take 2."
+
+
+def test_produce_asks_for_no_follow_up_without_a_terminal(logic, monkeypatch):
+    monkeypatch.setattr("mixhand.cli._interactive", lambda: False)
+    shown = produce(monkeypatch, doubled(), reply("Done."))
+    assert shown.exit_code == 0, shown.output
+    assert FOLLOW_UP not in shown.stdout
+    assert shown.stdout.splitlines()[-1] == "mixhand undo reverses this run."
+
+
+def test_a_run_killed_during_a_follow_up_is_not_explained_as_ended(logic, monkeypatch):
+    produce(monkeypatch, doubled(), reply("Done."), reply(call("set_pan", 2, track="Double", value=-40)), reply("Panned."), typed="pan it\n")
+    lines = LOG_PATH.read_text().splitlines()
+    cut = next(n for n, line in enumerate(lines) if json.loads(line)["event"] == "planner.follow_up")
+    LOG_PATH.write_text("\n".join(lines[: cut + 1]) + "\n")
+    assert explain().stdout.splitlines()[-3:] == [FOLLOW_UP, "› pan it", NO_END]
