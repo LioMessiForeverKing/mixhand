@@ -96,9 +96,9 @@ def logic(tmp_path, monkeypatch):
     return {"ran": ran, "primitive": primitive}
 
 
-def run(client, lines=None, typed=(), tracks=("Lead Vocal", "Double"), project="/tmp/x.logicx"):
+def run(client, lines=None, typed=(), tracks=("Lead Vocal", "Double"), front=lambda: "/tmp/x.logicx"):
     shown, lines, typed = [], [] if lines is None else lines, iter(typed)
-    logic = SimpleNamespace(track_names=lambda: list(tracks), require_project=lambda: project)
+    logic = SimpleNamespace(track_names=lambda: list(tracks), require_project=front)
     follow_up = lambda: next(typed, None)
     produce(logic, client, "make it bigger", session(), text=shown.append, line=lambda *shown_line: lines.append(shown_line), follow_up=follow_up)
     return "".join(shown)
@@ -278,13 +278,15 @@ def test_each_request_gets_its_own_action_budget(logic, monkeypatch):
     monkeypatch.setattr("mixhand.planner.validate.MAX_ACTIONS", 1)
     client = Client(
         reply(call("set_pan", 1, track="Adlib", value=-40)),
+        reply(call("set_pan", 2, track="Adlib", value=-50)),
         reply("Done."),
-        reply(call("set_pan", 2, track="Adlib", value=40)),
+        reply(call("set_pan", 3, track="Adlib", value=40)),
         reply("Done."),
     )
     lines = []
     run(client, lines, typed=["the other way"])
-    assert [status for status, *_ in lines] == ["pass", "pass"]
+    assert [status for status, *_ in lines] == ["pass", "fail", "pass"]
+    assert "at most 1 actions" in lines[1][1]
 
 
 def test_an_edit_in_logic_between_turns_stops_the_follow_up_and_keeps_the_last_turn_undoable(logic, monkeypatch):
@@ -308,7 +310,7 @@ def test_an_edit_in_logic_between_turns_stops_the_follow_up_and_keeps_the_last_t
 def test_an_edit_in_logic_after_a_reply_that_changed_nothing_also_stops_the_follow_up(logic, monkeypatch):
     undo_titles(monkeypatch, "Undo Rename Track", "Undo Volume")
     client = Client(reply("Nothing to do yet."))
-    with pytest.raises(ExecutorError, match="Logic changed since Mixhand's last reply"):
+    with pytest.raises(ExecutorError, match="Logic changed since this run began"):
         run(client, typed=["pan Adlib left"], tracks=("Lead Vocal", "Adlib", "Verb"))
     assert len(client.requests) == 1
 
@@ -316,8 +318,11 @@ def test_an_edit_in_logic_after_a_reply_that_changed_nothing_also_stops_the_foll
 def test_a_follow_up_with_another_project_in_front_is_refused(logic, monkeypatch):
     undo_titles(monkeypatch, "Undo Rename Track", "Undo Create Tracks")
     client = Client(reply(call("duplicate_track", 1, source="Lead Vocal", new_name="Double")), reply("Doubled."))
-    with pytest.raises(ExecutorError, match="/tmp/other.logicx is in front"):
-        run(client, typed=["pan it"], project="/tmp/other.logicx")
+    def front():
+        raise ExecutorError("the front Logic project is /tmp/other.logicx, not /tmp/x.logicx")
+
+    with pytest.raises(ExecutorError, match="the front Logic project is /tmp/other.logicx"):
+        run(client, typed=["pan it"], front=front)
     assert len(client.requests) == 2
 
 

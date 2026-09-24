@@ -143,7 +143,7 @@ Tool schema (`planner/tools.py`) — every tool has `reason: str` as a required 
 
 Execution loop: plan → validate → execute one action → verify → feed `ActionResult` back as `tool_result` → next. An `ExecutorError` stops the run instead of going back to the model: it can leave Logic partway through an action, and the model cannot see how far. The failure is printed and recorded in the group.
 
-Conversational follow-ups ("make the doubles quieter") reuse the same loop with prior messages retained. After each reply `produce` waits for another request; a blank line or Ctrl-D ends it. A follow-up continues the same run: one undo group and one set of validation facts (what the run created, inserted and added), with the 14-action cap counted per request. Before a follow-up, Logic's Undo title, tracks and Mixer routing must still read what the last reply left, or the run stops rather than fold an edit made by hand into its undo; when nothing has been saved yet, the run's starting point is read again instead.
+Conversational follow-ups ("make the doubles quieter") reuse the same loop with prior messages retained. After each reply `produce` waits for another request; a blank line or Ctrl-D ends it. A follow-up continues the same run: one undo group and one set of validation facts (what the run created, inserted and added), with the 14-action cap counted per request. Before a follow-up, Logic's Undo title, tracks and Mixer routing must still read what the last reply left, or the run stops rather than fold an edit made by hand into its undo; when nothing has been saved yet, the Undo title and tracks must still read as they did when the run began, because the model and validation still work from that read.
 
 ## 7. CLI
 

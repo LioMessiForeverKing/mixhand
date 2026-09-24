@@ -178,3 +178,13 @@ def test_a_run_killed_during_a_follow_up_is_not_explained_as_ended(logic, monkey
     cut = next(n for n, line in enumerate(lines) if json.loads(line)["event"] == "planner.follow_up")
     LOG_PATH.write_text("\n".join(lines[: cut + 1]) + "\n")
     assert explain().stdout.splitlines()[-3:] == [FOLLOW_UP, "› pan it", NO_END]
+
+
+def test_a_refused_follow_up_leaves_the_last_reply_explained_as_ended(logic, monkeypatch):
+    titles = iter(["Undo Create Tracks", "Undo Create Tracks", "Undo Volume"])
+    monkeypatch.setattr("mixhand.executor.group.undo_title", lambda: next(titles))
+    shown = produce(monkeypatch, doubled(), reply("Done."), typed="pan it\n")
+    assert shown.exit_code == 1
+    replayed = explain().stdout.splitlines()
+    assert replayed[-3:-1] == [FOLLOW_UP, "› pan it"]
+    assert replayed[-1].startswith("✖ Logic changed since Mixhand's last reply")
