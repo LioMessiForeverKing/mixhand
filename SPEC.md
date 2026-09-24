@@ -15,7 +15,7 @@ Name: **Mixhand**. Positioning: "Claude Code for Logic Pro."
 ### In scope (build in this order — see §9)
 1. Executor: six primitives that move Logic (§4)
 2. State reader: session → JSON (§5)
-3. Planner: Claude API with a strict tool schema (§6)
+3. Planner: OpenAI Responses API with a strict tool schema (§6)
 4. CLI: terminal UI that streams the plan and action log (§7)
 5. Demo run + recording (§8)
 
@@ -36,7 +36,7 @@ If a task seems to require something out of scope, stop and ask.
 Terminal CLI (Python, rich/textual)
     │  prompt + streamed plan/log
     ▼
-Planner  ──── Anthropic API, tool_use, model claude-sonnet-4-6 or latest ────
+Planner  ──── OpenAI Responses API, function tools, model $MIXHAND_MODEL (default gpt-6-sol) ────
     │  validated actions (JSON)
     ▼
 Executor ──── Python: pyobjc AX API, osascript/JXA, CGEvent keystrokes, mido→IAC
@@ -79,7 +79,7 @@ Module: `mixhand/executor/`. Each primitive is a function that returns `ActionRe
 Plus three utilities:
 - `delete_track(track)` — LogicProMCP `logic_tracks.delete` bound by `track_ref`, then a fresh read must show exactly that track gone. Not a planner tool; it lets live tests clean up after themselves.
 - `undo(n: int = 1)` — `Cmd+Z` × n.
-- `begin_group(label) / end_group()` — records the count of Logic actions performed so `undo_group()` can reverse the whole AI action. (Logic has no native undo grouping we can drive; count and replay `Cmd+Z`.)
+- `begin_group(label) / end_group()` — records each action of a run in `logs/group.json` so `undo_group()` can reverse the whole run. Logic has no undo grouping we can drive, and volume, pan, send-level and plugin-param writes make no undo step, so every `ActionResult` carries `undo_steps` (the steps that call made) and `was` (the level a no-undo write replaced). A run that made no undo step and moved no volume or pan is not saved, so it never replaces the last run that did; a record in an older format is refused. `undo_group()` refuses unless the front project is the run's and Logic's Undo title, track list and Mixer routing all still read what they did when the run ended (a title names an operation, not whose it was), puts back each moved volume or pan on a track that existed before the run (its first write's `was`), then sends every undo step in one batch. A run that stopped on an `ExecutorError` is not undone: how far that action got is unknown, so it says what to undo by hand.
 
 Environment assumptions (enforce in a `doctor` command, fail loudly if not met):
 - Logic Pro is frontmost, Mixer is open (`X`), window at fixed size, screen at fixed resolution
@@ -122,13 +122,13 @@ Optional audio analysis (only after §9 milestone 4 is done): `analyze_stems(tra
 
 ## 6. Planner
 
-Module: `mixhand/planner/`. Uses the Anthropic Python SDK with `tools=` set to exactly the six primitives plus `explain`. Streaming on.
+Module: `mixhand/planner/`. Uses the OpenAI Python SDK's Responses API, because the OpenAI credits are already paid for, with strict function `tools=` set to the six primitives, primitives 3 and 5 split into their two calls (`explain` comes with the `explain` command). Streaming on, one tool call per turn (`parallel_tool_calls=False`). The model is `MIXHAND_MODEL`, `gpt-6-sol` when unset or blank.
 
 System prompt essentials (write in `planner/system_prompt.md`, keep it editable):
 - You are a vocal producer working inside the user's Logic Pro session. You can only act through the provided tools. Stock Logic plugins only, from `available_plugins`.
 - Before calling tools, write a short plan in plain English (3–6 sentences) describing what you'll do and why. Then execute.
 - For every tool call, include a `reason` argument: one sentence, specific to this session (reference the track, the problem, the number).
-- Typical "bigger, more professional chorus vocal" plan: lead chain (Channel EQ HPF ~80 Hz, Compressor ~3:1, DeEsser), two doubles panned L/R with EQ, a reverb aux (ChromaVerb) and a delay aux (Stereo Delay) with sends from all vocal tracks, doubles 4–8 dB under the lead. Adapt to what's actually in the session.
+- Typical "bigger, more professional chorus vocal" plan: lead chain (Channel EQ, Compressor; DeEsser, the Low Cut and the ratio are out of Mixhand's reach, `SETUP.md`), two doubles panned L/R with EQ, a reverb aux (ChromaVerb) and a delay aux (Stereo Delay) with sends from all vocal tracks, doubles 4–8 dB under the lead. Adapt to what's actually in the session.
 - Never delete, never touch non-vocal tracks unless asked, never change tempo/key/project settings.
 - Keep it to ≤ 14 actions. A demo must complete in under 45 seconds of Logic activity.
 
@@ -137,9 +137,11 @@ Tool schema (`planner/tools.py`) — every tool has `reason: str` as a required 
 2. Plugin is in `available_plugins`
 3. Numeric values within bounds (pan −64..63, volume −17..+6 dB — Logic's fader is too coarse below −17 dB to land near a request, see `SETUP.md` — send −60..0 dB)
 4. No duplicate track names
-5. Reject and re-prompt the model with the validation error (max 2 retries), never execute an invalid action
+5. `set_plugin_param` only on a plugin this run inserted, or on a track it created, because LogicProMCP reports no parameter's value from before a write, so undo could not put one back; `set_volume` never on a pre-existing track below −17 dB, which undo could not set back; and `set_send_level` only on a send this run added or a track it created, since a send that was there before can sit below what Mixhand can set
+6. At most 14 actions
+7. Reject and re-prompt the model with the validation error (max 2 retries in a row), never execute an invalid action
 
-Execution loop: plan → validate → execute one action → verify → feed `ActionResult` back as `tool_result` → next. If an action fails, tell the model; it may adapt or stop. On any `ExecutorError`, print the failure and offer `undo group`.
+Execution loop: plan → validate → execute one action → verify → feed `ActionResult` back as `tool_result` → next. An `ExecutorError` stops the run instead of going back to the model: it can leave Logic partway through an action, and the model cannot see how far. The failure is printed and recorded in the group.
 
 Conversational follow-ups ("make the doubles quieter") reuse the same loop with prior messages retained.
 

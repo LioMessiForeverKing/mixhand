@@ -2,6 +2,7 @@ import pytest
 from conftest import tracks
 
 from mixhand.executor import ExecutorError
+from mixhand.executor.fader import pan_contract, volume_contract
 from mixhand.executor.logicpro import LogicPro
 from mixhand.executor.primitives import set_pan, set_volume
 
@@ -118,3 +119,18 @@ def test_a_refused_move_is_logged_and_raised(fake):
         set_pan(logic, "Lead Vocal", 10)
 
     assert fake.log()[-1] == {**fake.log()[-1], "event": "set_pan.refused", "error": "mixer_not_visible"}
+
+
+@pytest.mark.parametrize(
+    ("command", "level", "contract", "was"),
+    [("set_volume", "volume", volume_contract(143), -3.0), ("set_pan", "pan", pan_contract(-5), -5), ("set_pan", "pan", 0.0, None)],
+    ids=["volume", "pan", "unread-pan"],
+)
+def test_a_move_reports_the_level_it_replaced_so_undo_can_put_it_back(fake, command, level, contract, was):
+    listing = tracks("Adlib", "Lead Vocal")
+    listing["data"][1][level] = contract
+    fake.serve(resources={"logic://tracks": [listing]}, tools={f"logic_mixer.{command}": [moved(98)]})
+    with LogicPro.from_env() as logic:
+        result = set_volume(logic, "Lead Vocal", -9.0) if command == "set_volume" else set_pan(logic, "Lead Vocal", 34)
+
+    assert (result.undo_steps, result.was) == (0, was)

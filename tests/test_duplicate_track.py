@@ -60,6 +60,7 @@ def test_a_track_is_duplicated_with_its_regions_and_renamed(fake, clicks, names)
 
     assert result.ok and result.verified
     assert result.detail == "Duplicated Lead Vocal to Lead Vocal Double with 1 region"
+    assert result.undo_steps == 2
     assert sent(fake, "select") == [{"index": 0, "target_ref": "trk_a"}]
     assert clicks == [DUPLICATE_MENU]
     assert names == [(2, "Lead Vocal", "Lead Vocal Double")]
@@ -103,7 +104,7 @@ def test_a_copy_that_never_appears_says_so(fake, clicks, names):
 
 
 def test_a_new_track_that_is_not_right_after_the_source_is_not_taken_for_the_copy(fake, clicks, names):
-    serve(fake, [[SOURCE], [COPY, SOURCE]])
+    serve(fake, [[SOURCE], [COPY, ("Lead Vocal", "trk_moved")]])
     with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="not one copy after it"):
         duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
 
@@ -162,3 +163,30 @@ def test_a_hidden_inspector_stops_before_anything_is_touched(fake, clicks, names
         duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
 
     assert fake.calls() == [] and clicks == [] and names == []
+
+
+# LogicProMCP keys a track_ref on the track's position and name, so Adlib is reissued one once the copy pushes it down.
+ADLIB, ADLIB_MOVED = ("Adlib", "trk_x"), ("Adlib", "trk_y")
+
+
+def test_a_track_with_tracks_below_it_is_duplicated_though_they_are_reissued_refs(fake, clicks, names):
+    serve(fake, [[SOURCE, ADLIB], [SOURCE, ADLIB], [SOURCE, COPY, ADLIB_MOVED], [SOURCE, COPY, ADLIB_MOVED], [SOURCE, COPY, ADLIB_MOVED], [SOURCE, RENAMED, ADLIB_MOVED]])
+    with LogicPro.from_env() as logic:
+        result = duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
+
+    assert result.verified and result.undo_steps == 2
+    assert names == [(2, "Lead Vocal", "Lead Vocal Double")]
+
+
+def test_a_copy_that_lands_below_the_other_tracks_is_not_taken_for_the_copy(fake, clicks, names):
+    serve(fake, [[SOURCE, ADLIB], [SOURCE, ADLIB], [SOURCE, ADLIB, COPY]])
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="not one copy after it"):
+        duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
+    assert names == []
+
+
+def test_a_new_track_after_the_source_that_is_not_its_copy_is_not_taken_for_it(fake, clicks, names):
+    serve(fake, [[SOURCE, ADLIB], [SOURCE, ("Audio 2", "trk_n"), ADLIB_MOVED]])
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="not one copy after it"):
+        duplicate_track(logic, "Lead Vocal", "Lead Vocal Double")
+    assert names == []

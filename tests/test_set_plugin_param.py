@@ -31,7 +31,7 @@ def test_compressor_threshold_reaches_logicpromcp_bound_to_the_track_it_names(fa
         result = set_plugin_param(logic, "Lead Vocal", "Compressor", "Threshold", 60)
 
     assert result.ok and result.verified
-    assert result.detail == "Set Lead Vocal's Compressor Threshold to 60 % (asked 60 %; undo does not restore it)"
+    assert result.detail == "Set Lead Vocal's Compressor Threshold to 60 % (asked 60 %)"
     [call] = written(fake)
     assert call["call"] == "logic_plugins.set_param_verified"
     assert call["params"] == {
@@ -57,7 +57,7 @@ def test_eq_gain_is_walked_by_raw_position_and_confirmed_by_logics_own_text(fake
     with LogicPro.from_env() as logic:
         result = set_plugin_param(logic, "Lead Vocal", "Channel EQ", "Peak 1 Gain", db)
 
-    assert result.detail == f"Set Lead Vocal's Channel EQ Peak 1 Gain to {shown} (asked {db:g} dB; undo does not restore it)"
+    assert result.detail == f"Set Lead Vocal's Channel EQ Peak 1 Gain to {shown} (asked {db:g} dB)"
     [call] = written(fake)
     assert call["params"]["insert"] == 1
     assert {k: call["params"][k] for k in ("band", "parameter", "value", "unit")} == {

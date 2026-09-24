@@ -26,6 +26,7 @@ def test_inserts_into_the_first_empty_slot_of_the_named_track(fake):
         result = insert_plugin(logic, "Lead Vocal", "Channel EQ")
 
     assert result.ok and result.verified
+    assert result.undo_steps == 1
     insert = [c for c in fake.calls() if c["call"] == "logic_plugins.insert_verified"]
     assert len(insert) == 1
     assert insert[0]["params"]["track"] == 1

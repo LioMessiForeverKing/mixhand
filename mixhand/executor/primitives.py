@@ -17,7 +17,15 @@ from mixhand.executor.ax import (
     set_track_name,
     step_send_level,
 )
-from mixhand.executor.fader import DB_AT_RAW, PAN_CENTRE_RAW, pan_contract, raw_nearest, volume_contract
+from mixhand.executor.fader import (
+    DB_AT_RAW,
+    PAN_CENTRE_RAW,
+    pan_at_contract,
+    pan_contract,
+    raw_at_contract,
+    raw_nearest,
+    volume_contract,
+)
 from mixhand.executor.logicpro import POLL_S, LogicPro
 
 INSERT_ATTEMPTS = 3
@@ -97,7 +105,7 @@ def insert_plugin(logic: LogicPro, track: str, plugin: str) -> ActionResult:
             return ActionResult(ok=True, detail=f"{plugin} is already on {track} slot {present[0]}", verified=True)
         if present:
             log("insert_plugin.done", track=track, plugin=plugin, slot=present[0], verified=True, found_on_rescrape=True)
-            return ActionResult(ok=True, detail=f"Inserted {plugin} on {track} slot {present[0]}", verified=True)
+            return ActionResult(ok=True, detail=f"Inserted {plugin} on {track} slot {present[0]}", verified=True, undo_steps=1)
         empty = [s["insert"] for s in slots if not s["occupied"]]
         if not empty:
             raise ExecutorError(f"{track!r} has no empty insert slot")
@@ -155,7 +163,7 @@ def _insert_once(logic: LogicPro, project: str, index: int, track: str, plugin: 
             f"inserting {plugin} on {track!r} slot {slot} was not confirmed "
             f"(state {result.get('state')}: {result.get('reason') or result.get('error')})"
         )
-    return ActionResult(ok=True, detail=f"Inserted {plugin} on {track} slot {slot}", verified=True)
+    return ActionResult(ok=True, detail=f"Inserted {plugin} on {track} slot {slot}", verified=True, undo_steps=1)
 
 
 def _pick_once(logic: LogicPro, track: str, plugin: str, before: list[dict], slot: int) -> ActionResult:
@@ -193,7 +201,7 @@ def _pick_once(logic: LogicPro, track: str, plugin: str, before: list[dict], slo
         click_menu(*HIDE_PLUGIN_WINDOWS)
     except ExecutorError as e:
         log("insert_plugin.window_left_open", track=track, plugin=plugin, error=str(e))
-    return ActionResult(ok=True, detail=f"Inserted {plugin} ({chosen}) on {track} slot {slot}", verified=True)
+    return ActionResult(ok=True, detail=f"Inserted {plugin} ({chosen}) on {track} slot {slot}", verified=True, undo_steps=1)
 
 
 def set_volume(logic: LogicPro, track: str, db: float) -> ActionResult:
@@ -201,9 +209,10 @@ def set_volume(logic: LogicPro, track: str, db: float) -> ActionResult:
         raise ExecutorError(f"volume {db:g} dB is outside {VOLUME_DB_MIN:g}..{VOLUME_DB_MAX:g} dB")
     logic.require_project()
     target = raw_nearest(db)
-    raw = _move(logic, "set_volume", track, volume_contract(target + TIE_BREAK_RAW), target, requested=db)
+    raw, before = _move(logic, "set_volume", track, volume_contract(target + TIE_BREAK_RAW), target, requested=db, level="volume")
+    was = None if before is None else DB_AT_RAW[raw_at_contract(before)]
     return ActionResult(
-        ok=True, detail=f"Set {track} to {DB_AT_RAW[raw]:+.1f} dB (asked {db:+.1f} dB)", verified=True
+        ok=True, detail=f"Set {track} to {DB_AT_RAW[raw]:+.1f} dB (asked {db:+.1f} dB)", verified=True, was=was
     )
 
 
@@ -211,13 +220,17 @@ def set_pan(logic: LogicPro, track: str, value: int) -> ActionResult:
     if not PAN_MIN <= value <= PAN_MAX:
         raise ExecutorError(f"pan {value} is outside {PAN_MIN}..{PAN_MAX}")
     logic.require_project()
-    raw = _move(logic, "set_pan", track, pan_contract(value + TIE_BREAK_RAW), value + PAN_CENTRE_RAW, requested=value)
+    raw, before = _move(logic, "set_pan", track, pan_contract(value + TIE_BREAK_RAW), value + PAN_CENTRE_RAW, requested=value, level="pan")
+    # LogicProMCP reports an unreadable pan knob as 0.0, which no real pan maps to.
+    was = None if before in (None, 0.0) else pan_at_contract(before)
     return ActionResult(
-        ok=True, detail=f"Panned {track} to {raw - PAN_CENTRE_RAW} (asked {value})", verified=True
+        ok=True, detail=f"Panned {track} to {raw - PAN_CENTRE_RAW} (asked {value})", verified=True, was=was
     )
 
 
-def _move(logic: LogicPro, command: str, track: str, contract: float, target: int, requested: float) -> int:
+def _move(
+    logic: LogicPro, command: str, track: str, contract: float, target: int, requested: float, level: str
+) -> tuple[int, float | None]:
     index, entry = _track(logic, track)
     if not entry.get("track_ref"):
         raise ExecutorError(f"Logic gave no track_ref for {track!r}, so a move could not be bound to it")
@@ -246,7 +259,7 @@ def _move(logic: LogicPro, command: str, track: str, contract: float, target: in
         )
     if not landed:
         raise ExecutorError(f"{command} on {track!r} landed at raw {raw:g}, not within {LANDS_WITHIN_RAW} of {target}")
-    return round(raw)
+    return round(raw), entry.get(level)
 
 
 def set_plugin_param(logic: LogicPro, track: str, plugin: str, param: str, value: float) -> ActionResult:
@@ -292,7 +305,7 @@ def set_plugin_param(logic: LogicPro, track: str, plugin: str, param: str, value
         )
     return ActionResult(
         ok=True,
-        detail=f"Set {track}'s {plugin} {param} to {shown} (asked {value:g} {unit}; undo does not restore it)",
+        detail=f"Set {track}'s {plugin} {param} to {shown} (asked {value:g} {unit})",
         verified=True,
     )
 
@@ -404,7 +417,10 @@ def duplicate_track(logic: LogicPro, source: str, new_name: str) -> ActionResult
     _rename_copy(logic, copy_index, copy_ref, source, new_name)
     log("duplicate_track.done", source=source, new_name=new_name, position=copy_index + 1, regions=len(spans), verified=True)
     return ActionResult(
-        ok=True, detail=f"Duplicated {source} to {new_name} with {len(spans)} region{'' if len(spans) == 1 else 's'}", verified=True
+        ok=True,
+        detail=f"Duplicated {source} to {new_name} with {len(spans)} region{'' if len(spans) == 1 else 's'}",
+        verified=True,
+        undo_steps=2,
     )
 
 
@@ -417,11 +433,11 @@ def _spans(logic: LogicPro, index: int) -> list[tuple[str, str]]:
 
 def _new_track(logic: LogicPro, before: list[dict], index: int, source: str) -> tuple[int, str]:
     refs = [t["track_ref"] for t in before]
+    names = [t["name"] for t in before]
     deadline = time.monotonic() + SETTLES_WITHIN_S
     while True:
         after = logic.tracks()
-        added = [t.get("track_ref") for t in after if t.get("track_ref") not in refs]
-        if added:
+        if len(after) != len(before):
             break
         if time.monotonic() >= deadline:
             raise ExecutorError(
@@ -429,12 +445,15 @@ def _new_track(logic: LogicPro, before: list[dict], index: int, source: str) -> 
                 "check Logic and undo 1 if a copy was made"
             )
         time.sleep(POLL_S)
-    expected = refs[: index + 1] + added[:1] + refs[index + 1 :]
-    if [t.get("track_ref") for t in after] != expected or after[index + 1]["name"] != source:
+    # LogicProMCP keys a track_ref on position and name, so only the tracks above the copy keep theirs.
+    if (
+        [t["name"] for t in after] != names[: index + 1] + [source] + names[index + 1 :]
+        or [t.get("track_ref") for t in after[: index + 1]] != refs[: index + 1]
+    ):
         raise ExecutorError(
             f"duplicating {source!r} left {[t['name'] for t in after]}, not one copy after it; check Logic before undoing"
         )
-    return index + 1, added[0]
+    return index + 1, after[index + 1]["track_ref"]
 
 
 def _rename_copy(logic: LogicPro, index: int, copy_ref: str, source: str, new_name: str) -> None:
@@ -477,7 +496,9 @@ def create_aux(logic: LogicPro, name: str, plugin: str) -> ActionResult:
             raise ExecutorError(f"a track named {name!r} already exists and is not an aux")
         log("create_aux.skipped", name=name, plugin=plugin)
         inserted = insert_plugin(logic, name, plugin)
-        return ActionResult(ok=True, detail=f"Aux {name} already exists; {inserted.detail}", verified=inserted.verified)
+        return ActionResult(
+            ok=True, detail=f"Aux {name} already exists; {inserted.detail}", verified=inserted.verified, undo_steps=inserted.undo_steps
+        )
     require_mixer()
     require_inspector()
     log("create_aux.start", name=name, plugin=plugin)
@@ -508,29 +529,39 @@ def create_aux(logic: LogicPro, name: str, plugin: str) -> ActionResult:
             f"to finish, or undo {steps} to remove it without the plugin, {steps + 1} with it"
         ) from e
     log("create_aux.done", name=name, plugin=plugin, position=index + 1, verified=inserted.verified)
-    return ActionResult(ok=True, detail=f"Created aux {name} with {plugin}; undo {steps + 1} removes it", verified=inserted.verified)
+    return ActionResult(
+        ok=True,
+        detail=f"Created aux {name} with {plugin}; undo {steps + 1} removes it",
+        verified=inserted.verified,
+        undo_steps=steps + 1,
+    )
 
 
 def _new_aux(logic: LogicPro, before: list[dict]) -> tuple[int, str, str]:
     refs = [t.get("track_ref") for t in before]
+    names = [t["name"] for t in before]
     deadline = time.monotonic() + SETTLES_WITHIN_S
     while True:
         after = logic.tracks()
-        added = [i for i, t in enumerate(after) if t.get("track_ref") not in refs]
-        if added:
+        if len(after) != len(before):
             break
         if time.monotonic() >= deadline:
             raise ExecutorError(f"no aux track appeared within {SETTLES_WITHIN_S:g}s; check the Mixer before undoing")
         time.sleep(POLL_S)
-    kept = [t.get("track_ref") for i, t in enumerate(after) if i not in added]
-    if len(added) != 1 or kept != refs or after[added[0]].get("type") != "aux":
+    at = next((i for i, name in enumerate(names) if after[i]["name"] != name), len(names))
+    # Logic puts the aux's track after the selected one, and LogicProMCP reissues the refs of every track below it.
+    if (
+        [t["name"] for i, t in enumerate(after) if i != at] != names
+        or [t.get("track_ref") for t in after[:at]] != refs[:at]
+        or after[at].get("type") != "aux"
+    ):
         raise ExecutorError(
             f"creating the aux left {[t['name'] for t in after]}, not one new aux track; check Logic before undoing"
         )
-    new = after[added[0]]
+    new = after[at]
     if not new.get("track_ref"):
         raise ExecutorError("Logic gave no track_ref for the new aux, so it could not be bound; check Logic before undoing")
-    return added[0], new["track_ref"], new["name"]
+    return at, new["track_ref"], new["name"]
 
 
 def _rename_aux(logic: LogicPro, index: int, ref: str, current: str, name: str) -> None:
@@ -637,7 +668,9 @@ def add_send(logic: LogicPro, track: str, aux: str) -> ActionResult:
             "so check which project it is in before undoing"
         ) from e
     log("add_send.done", track=track, aux=aux, bus=bus, verified=True)
-    return ActionResult(ok=True, detail=f"Sent {track} to {aux} on Bus {bus}; undo {steps + 1} removes it", verified=True)
+    return ActionResult(
+        ok=True, detail=f"Sent {track} to {aux} on Bus {bus}; undo {steps + 1} removes it", verified=True, undo_steps=steps + 1
+    )
 
 
 def set_send_level(logic: LogicPro, track: str, aux: str, db: float) -> ActionResult:
@@ -676,7 +709,10 @@ def set_send_level(logic: LogicPro, track: str, aux: str, db: float) -> ActionRe
         )
     log("set_send_level.done", track=track, aux=aux, bus=bus, requested=db, was=was, level=seen, steps=steps, verified=True)
     return ActionResult(
-        ok=True, detail=f"Set {track}'s send to {aux} to {seen} dB (asked {db:g} dB, was {was} dB; undo does not restore it)", verified=True
+        ok=True,
+        detail=f"Set {track}'s send to {aux} to {seen} dB (asked {db:g} dB, was {was} dB)",
+        verified=True,
+        was=was,
     )
 
 
