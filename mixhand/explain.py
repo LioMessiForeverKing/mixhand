@@ -4,7 +4,7 @@ from datetime import datetime
 
 from mixhand.executor.actionlog import LOG_PATH
 
-SHOWN = ("planner.text", "planner.refused", "planner.action", "planner.stopped")
+SHOWN = ("planner.text", "planner.follow_up", "planner.refused", "planner.action", "planner.stopped")
 
 
 class Unexplained(Exception):
@@ -40,15 +40,20 @@ def _run(begin: dict, after) -> Run:
     if begin.get("run") is None:
         raise Unexplained("the last run was logged by an older Mixhand, which did not record its reasons")
     run = Run(label=begin["label"], began=_time(begin))
+    replying = False
     for event in after:
         if event.get("run") != begin["run"]:
             continue
         if event["event"] in SHOWN:
             run.shown.append(event)
+        if event["event"] in ("planner.follow_up", "planner.stopped"):
+            replying = event["event"] == "planner.follow_up"
         elif event["event"] == "group.end":
-            run.end = event
+            run.end, replying = event, False
         elif event["event"] == "group.undo.start":
             run.undo_began = _time(event)
+    if replying:
+        run.end = None
     return run
 
 

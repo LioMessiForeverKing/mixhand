@@ -1,3 +1,5 @@
+import sys
+
 import openai
 import typer
 
@@ -11,6 +13,8 @@ from mixhand.state.models import Selection, as_json
 from mixhand.state.reader import read_session
 
 NOTHING_TO_UNDO = "mixhand undo has nothing from this run to reverse."
+FOLLOW_UP = "Say what to change next, or press Return to finish."
+PROMPT = "›"
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -38,6 +42,15 @@ class Out:
         if not self.fresh:
             typer.echo()
         self.fresh = True
+
+    def follow_up(self) -> str | None:
+        self.end_line()
+        typer.echo(typer.style(FOLLOW_UP, dim=True))
+        try:
+            return typer.prompt(PROMPT, default="", show_default=False, prompt_suffix=" ").strip() or None
+        except typer.Abort:
+            typer.echo()
+            return None
 
 
 @app.callback()
@@ -90,7 +103,8 @@ def produce(
         with LogicPro.from_env() as logic:
             session = read_session(logic, key=(key or "").strip() or None, selection=selection)
             started = True
-            saved = loop.produce(logic, client, prompt.strip(), session, text=out.text, line=out.line)
+            follow_up = out.follow_up if _interactive() else lambda: None
+            saved = loop.produce(logic, client, prompt.strip(), session, text=out.text, line=out.line, follow_up=follow_up)
     except ExecutorError as e:
         out.end_line()
         typer.echo(f"{MARKS['fail']} {e}", err=True)
@@ -120,6 +134,10 @@ def explain() -> None:
     for event in run.shown:
         if event["event"] == "planner.text":
             out.text(event["text"])
+        elif event["event"] == "planner.follow_up":
+            out.end_line()
+            typer.echo(typer.style(FOLLOW_UP, dim=True))
+            typer.echo(f"{PROMPT} {event['text']}")
         elif event["event"] == "planner.action":
             out.line("pass", event["detail"], event["reason"])
         else:
@@ -147,6 +165,10 @@ def undo() -> None:
         raise typer.Exit(1)
     if not clean:
         raise typer.Exit(1)
+
+
+def _interactive() -> bool:
+    return sys.stdin.isatty()
 
 
 def _selection(start_bar: int | None, end_bar: int | None) -> Selection | None:

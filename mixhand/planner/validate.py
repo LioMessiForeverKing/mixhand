@@ -42,7 +42,6 @@ class Plan:
         )
 
     def apply(self, tool: str, args: dict, result: ActionResult) -> None:
-        self.actions += 1
         if tool in ("duplicate_track", "create_aux"):
             name = args.get("new_name") or args["name"]
             self.tracks.add(name)
@@ -70,7 +69,7 @@ def validate(tool: str, args: object, plan: Plan) -> None:
     if not args["reason"].strip():
         raise InvalidAction("every action needs a reason")
     if plan.actions >= MAX_ACTIONS:
-        raise InvalidAction(f"a run takes at most {MAX_ACTIONS} actions, and this one has used them all; stop here")
+        raise InvalidAction(f"a request takes at most {MAX_ACTIONS} actions, and this one has used them all; stop here")
     for name in ("track", "source", "aux"):
         if name in args and args[name] not in plan.tracks:
             raise InvalidAction(f"there is no track named {args[name]!r}; the tracks are {sorted(plan.tracks)}")

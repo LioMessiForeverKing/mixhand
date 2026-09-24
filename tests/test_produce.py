@@ -6,6 +6,7 @@ from openai.types.responses import Response
 from test_validate import session
 
 from mixhand.executor import ActionResult, ExecutorError
+from mixhand.executor.actionlog import LOG_PATH
 from mixhand.executor.group import GROUP_PATH
 from mixhand.planner import loop
 from mixhand.planner.loop import PlannerError, produce
@@ -95,11 +96,13 @@ def logic(tmp_path, monkeypatch):
     return {"ran": ran, "primitive": primitive}
 
 
-def run(client, lines=None):
-    shown, lines = [], [] if lines is None else lines
-    logic = SimpleNamespace(track_names=lambda: ["Lead Vocal", "Double"])
-    produce(logic, client, "make it bigger", session(), text=shown.append, line=lambda *shown_line: lines.append(shown_line))
+def run(client, lines=None, typed=(), tracks=("Lead Vocal", "Double"), front=lambda: "/tmp/x.logicx"):
+    shown, lines, typed = [], [] if lines is None else lines, iter(typed)
+    logic = SimpleNamespace(track_names=lambda: list(tracks), require_project=front)
+    follow_up = lambda: next(typed, None)
+    produce(logic, client, "make it bigger", session(), text=shown.append, line=lambda *shown_line: lines.append(shown_line), follow_up=follow_up)
     return "".join(shown)
+
 
 
 def test_the_plan_streams_then_each_valid_action_runs_and_its_result_goes_back_to_the_model(logic):
@@ -239,3 +242,143 @@ def test_stopping_a_run_before_its_first_action_leaves_the_last_run_undoable(log
     with pytest.raises(KeyboardInterrupt):
         run(Interrupted())
     assert GROUP_PATH.read_text() == '{"label": "the run before"}'
+
+
+def undo_titles(monkeypatch, *read):
+    titles = iter(read)
+    monkeypatch.setattr("mixhand.executor.group.undo_title", lambda: next(titles))
+
+
+def test_a_follow_up_continues_the_conversation_and_the_same_undo_group(logic, monkeypatch):
+    undo_titles(monkeypatch, "Undo Rename Track", "Undo Create Tracks", "Undo Create Tracks", "Undo Create Tracks")
+    client = Client(
+        reply("I'll double the lead.", call("duplicate_track", 1, source="Lead Vocal", new_name="Double")),
+        reply("Doubled."),
+        reply(call("set_pan", 2, track="Double", value=-40)),
+        reply("Panned."),
+    )
+    shown = run(client, typed=["pan the double left"])
+
+    assert shown == "I'll double the lead.Doubled.Panned."
+    assert logic["ran"][1] == ("set_pan", {"track": "Double", "value": -40})
+    before, turn_two = client.requests[1]["input"], client.requests[2]["input"]
+    assert turn_two[: len(before)] == before
+    assert turn_two[len(before)]["type"] == "message"
+    assert turn_two[len(before) + 1 :] == [{"role": "user", "content": "pan the double left"}]
+    group = json.loads(GROUP_PATH.read_text())
+    assert [a["tool"] for a in group["actions"]] == ["duplicate_track", "set_pan"]
+    assert (group["label"], group["undo_title_before"], group["undo_title_after"]) == ("make it bigger", "Undo Rename Track", "Undo Create Tracks")
+    events = [json.loads(line) for line in LOG_PATH.read_text().splitlines()]
+    assert [e["event"] for e in events].count("group.begin") == 1
+    assert {"event": "planner.follow_up", "text": "pan the double left"}.items() <= next(e for e in events if e["event"] == "planner.follow_up").items()
+
+
+def test_each_request_gets_its_own_action_budget(logic, monkeypatch):
+    undo_titles(monkeypatch, "Undo Rename Track", *["Undo Create Tracks"] * 3)
+    monkeypatch.setattr("mixhand.planner.validate.MAX_ACTIONS", 1)
+    client = Client(
+        reply(call("set_pan", 1, track="Adlib", value=-40)),
+        reply(call("set_pan", 2, track="Adlib", value=-50)),
+        reply("Done."),
+        reply(call("set_pan", 3, track="Adlib", value=40)),
+        reply("Done."),
+    )
+    lines = []
+    run(client, lines, typed=["the other way"])
+    assert [status for status, *_ in lines] == ["pass", "fail", "pass"]
+    assert "at most 1 actions" in lines[1][1]
+
+
+def test_an_edit_in_logic_between_turns_stops_the_follow_up_and_keeps_the_last_turn_undoable(logic, monkeypatch):
+    undo_titles(monkeypatch, "Undo Rename Track", "Undo Create Tracks", "Undo Volume")
+    client = Client(reply(call("duplicate_track", 1, source="Lead Vocal", new_name="Double")), reply("Doubled."))
+    before = None
+
+    def typed():
+        nonlocal before
+        before = GROUP_PATH.read_text()
+        yield "pan the double left"
+
+    with pytest.raises(ExecutorError, match="Logic changed since Mixhand's last reply"):
+        run(client, typed=typed())
+    assert len(client.requests) == 2
+    assert GROUP_PATH.read_text() == before
+    events = [json.loads(line)["event"] for line in LOG_PATH.read_text().splitlines()]
+    assert events[-2:] == ["planner.follow_up", "planner.stopped"]
+
+
+def test_an_edit_in_logic_after_a_reply_that_changed_nothing_also_stops_the_follow_up(logic, monkeypatch):
+    undo_titles(monkeypatch, "Undo Rename Track", "Undo Volume")
+    client = Client(reply("Nothing to do yet."))
+    with pytest.raises(ExecutorError, match="Logic changed since this run began"):
+        run(client, typed=["pan Adlib left"], tracks=("Lead Vocal", "Adlib", "Verb"))
+    assert len(client.requests) == 1
+
+
+def test_a_follow_up_with_another_project_in_front_is_refused(logic, monkeypatch):
+    undo_titles(monkeypatch, "Undo Rename Track", "Undo Create Tracks")
+    client = Client(reply(call("duplicate_track", 1, source="Lead Vocal", new_name="Double")), reply("Doubled."))
+    def front():
+        raise ExecutorError("the front Logic project is /tmp/other.logicx, not /tmp/x.logicx")
+
+    with pytest.raises(ExecutorError, match="the front Logic project is /tmp/other.logicx"):
+        run(client, typed=["pan it"], front=front)
+    assert len(client.requests) == 2
+
+
+def test_a_follow_up_saves_its_actions_as_unfinished_until_its_reply_ends(logic, monkeypatch):
+    undo_titles(monkeypatch, "Undo Rename Track", "Undo Create Tracks", "Undo Create Tracks", "Undo Create Tracks")
+    seen = []
+    monkeypatch.setitem(loop.EXECUTE, "set_volume", lambda logic, **args: seen.append(json.loads(GROUP_PATH.read_text())) or ActionResult(True, "set", True, 0, -3.0))
+    client = Client(
+        reply(call("duplicate_track", 1, source="Lead Vocal", new_name="Double")),
+        reply("Doubled."),
+        reply(call("set_pan", 2, track="Adlib", value=-40)),
+        reply(call("set_volume", 3, track="Adlib", db=-6)),
+        reply("Done."),
+    )
+    run(client, typed=["pan and lower Adlib"])
+    assert [a["tool"] for a in seen[0]["actions"]] == ["duplicate_track", "set_pan"]
+    assert seen[0]["undo_title_after"] is None
+
+
+def test_stopping_a_follow_up_before_its_first_action_keeps_the_last_reply_undoable(logic, monkeypatch):
+    undo_titles(monkeypatch, "Undo Rename Track", "Undo Create Tracks", "Undo Create Tracks")
+
+    class Interrupted(Client):
+        def stream(self, **request):
+            if len(self.requests) == 2:
+                raise KeyboardInterrupt
+            return super().stream(**request)
+
+    client = Interrupted(reply(call("duplicate_track", 1, source="Lead Vocal", new_name="Double")), reply("Doubled."))
+    before = None
+
+    def typed():
+        nonlocal before
+        before = GROUP_PATH.read_text()
+        yield "pan it"
+
+    with pytest.raises(KeyboardInterrupt):
+        run(client, typed=typed())
+    assert GROUP_PATH.read_text() == before
+    assert json.loads(before)["failed"] is None
+
+
+def test_a_follow_up_whose_first_action_fails_marks_the_run_so_undo_will_not_guess(logic, monkeypatch):
+    undo_titles(monkeypatch, "Undo Rename Track", "Undo Create Tracks", "Undo Create Tracks")
+    logic["primitive"]("set_pan", fails=True)
+    client = Client(reply(call("duplicate_track", 1, source="Lead Vocal", new_name="Double")), reply("Doubled."), reply(call("set_pan", 2, track="Double", value=-40)))
+    with pytest.raises(ExecutorError, match="landed somewhere unexpected"):
+        run(client, typed=["pan it"])
+    group = json.loads(GROUP_PATH.read_text())
+    assert "landed somewhere unexpected" in group["failed"]
+
+
+def test_a_follow_up_after_a_reply_that_changed_nothing_goes_on_when_logic_is_as_it_was(logic, monkeypatch):
+    undo_titles(monkeypatch, "Undo Rename Track", "Undo Rename Track", "Undo Create Tracks")
+    client = Client(reply("Nothing to do yet."), reply(call("duplicate_track", 1, source="Lead Vocal", new_name="Double")), reply("Doubled."))
+    run(client, typed=["double the lead"], tracks=("Lead Vocal", "Adlib", "Verb"))
+    group = json.loads(GROUP_PATH.read_text())
+    assert [a["tool"] for a in group["actions"]] == ["duplicate_track"]
+    assert (group["undo_title_before"], group["undo_title_after"]) == ("Undo Rename Track", "Undo Create Tracks")

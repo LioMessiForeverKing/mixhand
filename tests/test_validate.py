@@ -136,7 +136,7 @@ def test_the_run_stops_taking_actions_at_the_limit():
     plan = Plan.of(session())
     for _ in range(MAX_ACTIONS):
         validate("set_pan", {"track": "Adlib", "value": 0, "reason": WHY}, plan)
-        plan.apply("set_pan", {"track": "Adlib", "value": 0}, done(0))
+        plan.actions += 1
     with pytest.raises(InvalidAction, match=f"at most {MAX_ACTIONS} actions"):
         validate("set_pan", {"track": "Adlib", "value": 0, "reason": WHY}, plan)
 

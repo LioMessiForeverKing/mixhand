@@ -71,6 +71,28 @@ def _changed(group: Group) -> bool:
     return any(a.undo_steps or a.tool in RESTORED for a in group.actions)
 
 
+# A follow-up extends the run, so an edit made in Logic between turns would be undone as the run's own.
+def resume_group(logic: LogicPro, group: Group) -> None:
+    logic.require_project()
+    if not _changed(group):
+        now = (undo_title(), logic.track_names())
+        if now != (group.undo_title_before, group.tracks_before):
+            raise ExecutorError(
+                f"Logic changed since this run began (its Undo reads {now[0]!r}, and the tracks may differ), "
+                "so what Mixhand read then is out of date; start a new mixhand produce instead"
+            )
+    elif (now := _now(logic)) != (group.undo_title_after, group.tracks_after, group.routes_after):
+        raise ExecutorError(
+            f"Logic changed since Mixhand's last reply (its Undo reads {now[0]!r}, and the tracks or routing may differ), "
+            "so a follow-up would fold that edit into this run's undo; start a new mixhand produce instead"
+        )
+    group.undo_title_after = group.tracks_after = group.routes_after = None
+
+
+def _now(logic: LogicPro) -> tuple[str, list[str], str]:
+    return undo_title(), logic.track_names(), read_routes()
+
+
 def load_group() -> Group | None:
     if not GROUP_PATH.exists():
         return None
@@ -94,7 +116,7 @@ def undo_group(logic: LogicPro) -> Iterator[tuple[str, str]]:
     if not same_path(project, group.project):
         raise ExecutorError(f"the last run was in {group.project}, not {project}; open that project to undo it")
     # An Undo title names an operation, not whose it was, so the tracks and routing must match too.
-    now = (undo_title(), logic.track_names(), read_routes())
+    now = _now(logic)
     if now != (group.undo_title_after, group.tracks_after, group.routes_after):
         raise ExecutorError(
             f"Logic changed after the run ended (its Undo reads {now[0]!r}, and the tracks or routing may differ), "
