@@ -185,6 +185,7 @@ on mixerStrips()
 end mixerStrips
 """
 
+# Once any strip holds a plugin, every strip shows a second, clipped empty row, and AX lists it first.
 PICK_PLUGIN = MIXER_STRIPS + """
 on run argv
     set {stripName, category, plugin} to items 1 thru 3 of argv
@@ -198,8 +199,11 @@ on run argv
         end repeat
         if (count of strips) is not 1 then error "found " & (count of strips) & " Mixer strips named " & stripName
         set slots to buttons of (item 1 of strips) whose description is "audio plug-in"
-        if (count of slots) is not 1 then error "found " & (count of slots) & " empty insert slots on " & stripName
+        if (count of slots) is 0 then error "found no empty insert slot on " & stripName
         set slot to item 1 of slots
+        repeat with b in slots
+            if item 2 of (position of b as list) < item 2 of (position of slot as list) then set slot to contents of b
+        end repeat
         if (count of menus of area) > 0 then error "a plug-in menu is already open in the Mixer; close it and run again"
         set opener to missing value
         repeat with a in actions of slot
