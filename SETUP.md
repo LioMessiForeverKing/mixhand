@@ -133,7 +133,8 @@ Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate 
   a send to a bus nothing listens on makes Logic create another aux, so the aux's Input slot is set
   first: to the lowest bus no strip's input, output or send uses, or kept when it is already a bus.
   A hidden track's strip leaves the Mixer (View › Follow Hide) and would make its bus look free,
-  so `add_send` refuses unless every track has a strip showing.
+  as does a collapsed track stack's subtrack, so `add_send` refuses unless every track has a strip
+  showing, counted per name so a visible namesake cannot stand in for a hidden copy.
   The send is then picked as *Bus › Bus N → aux*, a label that names the aux, so the pick itself
   checks the route. Each change is one undo step (*Change Input in Channel Strip*, *Change Send in
   Channel Strip*), and Logic rebuilds the strips after each, so a read in the next second can fail;

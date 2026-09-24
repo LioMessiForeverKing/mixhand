@@ -161,6 +161,15 @@ def test_a_hidden_track_stops_the_send_before_its_bus_can_look_free(fake, routed
     assert routed["picks"] == []
 
 
+def test_a_hidden_track_is_not_masked_by_a_visible_one_of_the_same_name(fake, routed):
+    serve(fake, [*TRACKS, ("Adlib", "audio")])
+    routed["reads"] = [mixer(strip("Lead Vocal"), strip("Adlib"), strip("Verb"))]
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match=r"shows no strip for \['Adlib'\]"):
+        add_send(logic, "Lead Vocal", "Verb")
+
+    assert routed["picks"] == []
+
+
 def test_a_failed_input_pick_makes_no_send_and_says_what_to_check(fake, routed, monkeypatch):
     def refuse(*args):
         raise ExecutorError("the Input slot menu on Verb did not open")
