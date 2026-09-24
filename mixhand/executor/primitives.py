@@ -305,7 +305,7 @@ def set_plugin_param(logic: LogicPro, track: str, plugin: str, param: str, value
         )
     return ActionResult(
         ok=True,
-        detail=f"Set {track}'s {plugin} {param} to {shown} (asked {value:g} {unit}; undo does not restore it)",
+        detail=f"Set {track}'s {plugin} {param} to {shown} (asked {value:g} {unit})",
         verified=True,
     )
 
@@ -710,7 +710,7 @@ def set_send_level(logic: LogicPro, track: str, aux: str, db: float) -> ActionRe
     log("set_send_level.done", track=track, aux=aux, bus=bus, requested=db, was=was, level=seen, steps=steps, verified=True)
     return ActionResult(
         ok=True,
-        detail=f"Set {track}'s send to {aux} to {seen} dB (asked {db:g} dB, was {was} dB; undo does not restore it)",
+        detail=f"Set {track}'s send to {aux} to {seen} dB (asked {db:g} dB, was {was} dB)",
         verified=True,
         was=was,
     )

@@ -39,7 +39,7 @@ def test_the_send_steps_to_the_level_asked_and_reports_the_one_it_replaced(fake,
         result = set_send_level(logic, "Lead Vocal", "Verb", -12)
 
     assert result.ok and result.verified
-    assert result.detail == "Set Lead Vocal's send to Verb to -12.0 dB (asked -12 dB, was -∞ dB; undo does not restore it)"
+    assert result.detail == "Set Lead Vocal's send to Verb to -12.0 dB (asked -12 dB, was -∞ dB)"
     assert (result.undo_steps, result.was) == (0, "-∞")
     assert knob["steps"] == [("Lead Vocal", 3, -120, 5, 300)]
     assert [e["event"] for e in fake.log()] == ["set_send_level.start", "set_send_level.done"]
