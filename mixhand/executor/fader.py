@@ -54,5 +54,16 @@ def volume_contract(raw: int) -> float:
     return 1.0
 
 
+def raw_at_contract(contract: float) -> int:
+    for (p0, c0), (p1, c1) in zip(CONTRACT_AT_POSITION, CONTRACT_AT_POSITION[1:]):
+        if contract <= c1:
+            return max(0, round((p0 + (contract - c0) / (c1 - c0) * (p1 - p0)) * RAW_MAX))
+    return RAW_MAX
+
+
 def pan_contract(pan: int) -> float:
     return max(-1.0, min(1.0, (pan + PAN_CENTRE_RAW - PAN_HALF_RANGE) / PAN_HALF_RANGE))
+
+
+def pan_at_contract(contract: float) -> int:
+    return round(contract * PAN_HALF_RANGE + PAN_HALF_RANGE) - PAN_CENTRE_RAW
