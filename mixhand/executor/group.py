@@ -46,13 +46,14 @@ def begin_group(label: str, project: str, tracks_before: list[str]) -> Group:
 
 def record(group: Group, tool: str, args: dict, result: ActionResult) -> None:
     group.actions.append(Action(tool=tool, args=args, undo_steps=result.undo_steps, was=result.was))
-    group.save()
+    if _changed(group):
+        group.save()
 
 
-# A run that changed nothing is not saved, so it cannot replace the last run that did.
+# A run that changed nothing undo tracks is not saved, so it cannot replace the last run that did.
 def end_group(logic: LogicPro, group: Group, failed: str | None = None) -> None:
-    if failed is None and not group.actions:
-        log("group.end", label=group.label, actions=0, saved=False)
+    if not _changed(group):
+        log("group.end", label=group.label, actions=len(group.actions), failed=failed, saved=False)
         return
     group.failed = failed
     if failed is None:
@@ -63,11 +64,18 @@ def end_group(logic: LogicPro, group: Group, failed: str | None = None) -> None:
     log("group.end", label=group.label, actions=len(group.actions), failed=failed, undo_title=group.undo_title_after)
 
 
+def _changed(group: Group) -> bool:
+    return any(a.undo_steps or a.tool in RESTORED for a in group.actions)
+
+
 def load_group() -> Group | None:
     if not GROUP_PATH.exists():
         return None
     body = json.loads(GROUP_PATH.read_text())
-    return Group(**{**body, "actions": [Action(**a) for a in body["actions"]]})
+    try:
+        return Group(**{**body, "actions": [Action(**a) for a in body["actions"]]})
+    except TypeError as e:
+        raise ExecutorError(f"{GROUP_PATH} was written by an older Mixhand, so undo cannot trust it; undo that run in Logic by hand") from e
 
 
 def undo_group(logic: LogicPro) -> Iterator[tuple[str, str]]:

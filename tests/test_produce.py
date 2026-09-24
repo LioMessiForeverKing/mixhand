@@ -217,3 +217,25 @@ def test_a_run_that_does_nothing_leaves_the_last_run_undoable(logic):
     with pytest.raises(PlannerError):
         run(Client(reply(call("set_pan", 1, track="Adlib", value=-40), status="incomplete", incomplete="max_output_tokens")))
     assert GROUP_PATH.read_text() == '{"label": "the run before"}'
+
+
+def test_a_run_of_only_no_op_actions_leaves_the_last_run_undoable(logic):
+    GROUP_PATH.parent.mkdir()
+    GROUP_PATH.write_text('{"label": "the run before"}')
+    logic["primitive"]("insert_plugin")
+    run(Client(reply(call("insert_plugin", 1, track="Adlib", plugin="Compressor")), reply("Already there.")))
+    assert logic["ran"] == [("insert_plugin", {"track": "Adlib", "plugin": "Compressor"})]
+    assert GROUP_PATH.read_text() == '{"label": "the run before"}'
+
+
+def test_stopping_a_run_before_its_first_action_leaves_the_last_run_undoable(logic):
+    GROUP_PATH.parent.mkdir()
+    GROUP_PATH.write_text('{"label": "the run before"}')
+
+    class Interrupted(Client):
+        def stream(self, **request):
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run(Interrupted())
+    assert GROUP_PATH.read_text() == '{"label": "the run before"}'

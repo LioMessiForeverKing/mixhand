@@ -153,3 +153,10 @@ def test_a_second_plugin_on_a_track_is_refused_because_the_executor_cannot_inser
     for track in ("Adlib", "Double", "Delay"):
         with pytest.raises(InvalidAction, match="only one plugin on a track"):
             validate("insert_plugin", {"track": track, "plugin": "Gain", "reason": WHY}, plan)
+
+
+def test_asking_to_add_a_send_that_already_exists_does_not_make_its_level_settable():
+    plan = Plan.of(session(channel("Lead Vocal", sends=[Send(4, "Verb")]), channel("Verb", bus=4)))
+    plan.apply("add_send", {"track": "Lead Vocal", "aux": "Verb"}, done(0))
+    with pytest.raises(InvalidAction, match="was there before the run"):
+        validate("set_send_level", {"track": "Lead Vocal", "aux": "Verb", "db": -12.0, "reason": WHY}, plan)

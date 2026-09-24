@@ -142,3 +142,12 @@ def test_there_is_nothing_to_undo_before_a_run(fake, titles):
     serve(fake)
     with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="no Mixhand run to undo"):
         list(undo_group(logic))
+
+
+def test_a_record_from_an_older_mixhand_is_refused_rather_than_trusted(fake, titles):
+    serve(fake)
+    GROUP_PATH.parent.mkdir(exist_ok=True)
+    GROUP_PATH.write_text('{"label": "old", "tracks_before": [], "undo_title_before": "x", "actions": [], "undo_title_after": "y", "failed": null}')
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="older Mixhand.*by hand"):
+        list(undo_group(logic))
+    assert sent(fake) == []

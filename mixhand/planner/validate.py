@@ -56,6 +56,7 @@ class Plan:
             self.plugins.setdefault(track, []).append(args["plugin"])
         if tool == "add_send":
             self.sends.add((args["track"], args["aux"]))
+        if tool == "add_send" and result.undo_steps:
             self.added.add((args["track"], args["aux"]))
 
 
