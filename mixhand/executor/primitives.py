@@ -433,11 +433,11 @@ def _spans(logic: LogicPro, index: int) -> list[tuple[str, str]]:
 
 def _new_track(logic: LogicPro, before: list[dict], index: int, source: str) -> tuple[int, str]:
     refs = [t["track_ref"] for t in before]
+    names = [t["name"] for t in before]
     deadline = time.monotonic() + SETTLES_WITHIN_S
     while True:
         after = logic.tracks()
-        added = [t.get("track_ref") for t in after if t.get("track_ref") not in refs]
-        if added:
+        if len(after) != len(before):
             break
         if time.monotonic() >= deadline:
             raise ExecutorError(
@@ -445,12 +445,15 @@ def _new_track(logic: LogicPro, before: list[dict], index: int, source: str) -> 
                 "check Logic and undo 1 if a copy was made"
             )
         time.sleep(POLL_S)
-    expected = refs[: index + 1] + added[:1] + refs[index + 1 :]
-    if [t.get("track_ref") for t in after] != expected or after[index + 1]["name"] != source:
+    # LogicProMCP keys a track_ref on position and name, so only the tracks above the copy keep theirs.
+    if (
+        [t["name"] for t in after] != names[: index + 1] + [source] + names[index + 1 :]
+        or [t.get("track_ref") for t in after[: index + 1]] != refs[: index + 1]
+    ):
         raise ExecutorError(
             f"duplicating {source!r} left {[t['name'] for t in after]}, not one copy after it; check Logic before undoing"
         )
-    return index + 1, added[0]
+    return index + 1, after[index + 1]["track_ref"]
 
 
 def _rename_copy(logic: LogicPro, index: int, copy_ref: str, source: str, new_name: str) -> None:
