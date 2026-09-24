@@ -5,12 +5,12 @@ from pathlib import Path
 
 from mixhand.executor import ActionResult, ExecutorError
 from mixhand.executor.actionlog import log
-from mixhand.executor.ax import undo_title
-from mixhand.executor.logicpro import LogicPro
-from mixhand.executor.primitives import set_pan, set_send_level, set_volume, undo
+from mixhand.executor.ax import read_routes, undo_title
+from mixhand.executor.logicpro import LogicPro, same_path
+from mixhand.executor.primitives import set_pan, set_volume, undo
 
 GROUP_PATH = Path("logs/group.json")
-RESTORED = ("set_volume", "set_pan", "set_send_level")
+RESTORED = ("set_volume", "set_pan")
 
 
 @dataclass
@@ -24,10 +24,13 @@ class Action:
 @dataclass
 class Group:
     label: str
+    project: str
     tracks_before: list[str]
     undo_title_before: str
     actions: list[Action] = field(default_factory=list)
     undo_title_after: str | None = None
+    tracks_after: list[str] | None = None
+    routes_after: str | None = None
     failed: str | None = None
 
     def save(self) -> None:
@@ -35,9 +38,8 @@ class Group:
         GROUP_PATH.write_text(json.dumps(asdict(self), indent=2, ensure_ascii=False))
 
 
-def begin_group(label: str, tracks_before: list[str]) -> Group:
-    group = Group(label=label, tracks_before=tracks_before, undo_title_before=undo_title())
-    group.save()
+def begin_group(label: str, project: str, tracks_before: list[str]) -> Group:
+    group = Group(label=label, project=project, tracks_before=tracks_before, undo_title_before=undo_title())
     log("group.begin", label=label, undo_title=group.undo_title_before)
     return group
 
@@ -47,10 +49,16 @@ def record(group: Group, tool: str, args: dict, result: ActionResult) -> None:
     group.save()
 
 
-def end_group(group: Group, failed: str | None = None) -> None:
+# A run that changed nothing is not saved, so it cannot replace the last run that did.
+def end_group(logic: LogicPro, group: Group, failed: str | None = None) -> None:
+    if failed is None and not group.actions:
+        log("group.end", label=group.label, actions=0, saved=False)
+        return
     group.failed = failed
     if failed is None:
         group.undo_title_after = undo_title()
+        group.tracks_after = logic.track_names()
+        group.routes_after = read_routes()
     group.save()
     log("group.end", label=group.label, actions=len(group.actions), failed=failed, undo_title=group.undo_title_after)
 
@@ -71,18 +79,21 @@ def undo_group(logic: LogicPro) -> Iterator[tuple[str, str]]:
             f"the last run stopped partway ({group.failed or 'it never finished'}), so Mixhand cannot tell how far "
             f"its last action got; undo it in Logic by hand. {_by_hand(group)}"
         )
-    logic.require_project()
-    now = undo_title()
-    if now != group.undo_title_after:
+    project = logic.require_project()
+    if not same_path(project, group.project):
+        raise ExecutorError(f"the last run was in {group.project}, not {project}; open that project to undo it")
+    # An Undo title names an operation, not whose it was, so the tracks and routing must match too.
+    now = (undo_title(), logic.track_names(), read_routes())
+    if now != (group.undo_title_after, group.tracks_after, group.routes_after):
         raise ExecutorError(
-            f"Logic's Undo reads {now!r}, not {group.undo_title_after!r} as when the run ended, "
-            f"so Logic changed since; undo in Logic by hand. {_by_hand(group)}"
+            f"Logic changed after the run ended (its Undo reads {now[0]!r}, and the tracks or routing may differ), "
+            f"so undo could take back someone else's edit; undo in Logic by hand. {_by_hand(group)}"
         )
+    created = set(now[1]) - set(group.tracks_before)
     GROUP_PATH.unlink()
     log("group.undo.start", label=group.label)
-    created = set(logic.track_names()) - set(group.tracks_before)
     for action in _first_writes(group.actions):
-        yield _restore(logic, action, created, _sends_added(group))
+        yield _restore(logic, action, created)
     steps = sum(a.undo_steps for a in group.actions)
     if steps:
         try:
@@ -98,27 +109,21 @@ def _first_writes(actions: list[Action]) -> list[Action]:
     first: dict[tuple, Action] = {}
     for a in actions:
         if a.tool in RESTORED:
-            first.setdefault((a.tool, a.args["track"], a.args.get("aux")), a)
+            first.setdefault((a.tool, a.args["track"]), a)
     return list(first.values())
 
 
-def _sends_added(group: Group) -> set[tuple[str, str]]:
-    return {(a.args["track"], a.args["aux"]) for a in group.actions if a.tool == "add_send" and a.undo_steps}
-
-
-def _restore(logic: LogicPro, action: Action, created: set[str], sends: set[tuple[str, str]]) -> tuple[str, str]:
-    track, aux, what = action.args["track"], action.args.get("aux"), _what(action)
-    if track in created or aux in created or (track, aux) in sends:
+def _restore(logic: LogicPro, action: Action, created: set[str]) -> tuple[str, str]:
+    track, what = action.args["track"], _what(action)
+    if track in created:
         return "pass", f"{what} goes with the undo steps"
     if action.was is None:
         return "fail", f"{what} could not be read before the run, so it was not put back"
     try:
         if action.tool == "set_volume":
             result = set_volume(logic, track, action.was)
-        elif action.tool == "set_pan":
-            result = set_pan(logic, track, action.was)
         else:
-            result = set_send_level(logic, track, aux, float(str(action.was).replace("-∞", "-inf")))
+            result = set_pan(logic, track, action.was)
     except ExecutorError as e:
         return "fail", f"{e}; put {what} back to {action.was} by hand"
     return "pass", f"Put back: {result.detail}"
@@ -141,5 +146,4 @@ def _by_hand(group: Group) -> str:
 
 
 def _what(action: Action) -> str:
-    track, aux = action.args["track"], action.args.get("aux")
-    return f"{track}'s send to {aux}" if aux else f"{track}'s {'volume' if action.tool == 'set_volume' else 'pan'}"
+    return f"{action.args['track']}'s {'volume' if action.tool == 'set_volume' else 'pan'}"

@@ -63,10 +63,10 @@ def test_undo_returns_the_session_to_where_the_run_found_it(tmp_path, monkeypatc
         [lead] = [t for t in before.tracks if t.name == TRACK]
         if not VOLUME_DB_MIN <= lead.volume_db <= VOLUME_DB_MAX:
             pytest.fail(f"{TRACK} is at {lead.volume_db} dB, which undo could not put back; move it within range first")
-        group = begin_group("live undo", names)
+        group = begin_group("live undo", before.project.path, names)
         for primitive, args in RUN:
             record(group, primitive.__name__, args, primitive(logic, **args))
-        end_group(group)
+        end_group(logic, group)
         report = list(undo_group(logic))
 
     assert [status for status, _ in report[:-1]] == ["pass"] * (len(report) - 1), report

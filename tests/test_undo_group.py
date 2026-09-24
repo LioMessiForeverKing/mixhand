@@ -1,11 +1,13 @@
 import pytest
-from conftest import tracks
+from conftest import PROJECT, tracks
 
 from mixhand.executor import ExecutorError
 from mixhand.executor.group import GROUP_PATH, Action, Group, undo_group
 from mixhand.executor.logicpro import LogicPro
 
 BEFORE, AFTER = "Undo Rename Track", "Undo Change Send in Channel Strip"
+TRACKS = ["Lead Vocal", "Double", "Adlib", "Verb"]
+ROUTES = "Lead Vocal\tInput 1\tStereo Out\tBus 1\t7\nVerb\tBus 1\tStereo Out\t\t8"
 
 
 def moved(observed_raw):
@@ -15,9 +17,12 @@ def moved(observed_raw):
 def ran(**overrides) -> Group:
     group = Group(
         label="make it bigger",
+        project=PROJECT,
         tracks_before=["Lead Vocal", "Adlib"],
         undo_title_before=BEFORE,
         undo_title_after=AFTER,
+        tracks_after=TRACKS,
+        routes_after=ROUTES,
         actions=[
             Action("set_volume", {"track": "Lead Vocal", "db": -6.0}, 0, -3.0),
             Action("duplicate_track", {"source": "Lead Vocal", "new_name": "Double"}, 2, None),
@@ -39,12 +44,13 @@ def ran(**overrides) -> Group:
 def titles(monkeypatch):
     shown = []
     monkeypatch.setattr("mixhand.executor.group.undo_title", lambda: shown.pop(0))
+    monkeypatch.setattr("mixhand.executor.group.read_routes", lambda: ROUTES)
     return shown
 
 
 def serve(fake):
     fake.serve(
-        resources={"logic://tracks": [tracks("Lead Vocal", "Double", "Adlib", "Verb")]},
+        resources={"logic://tracks": [tracks(*TRACKS)]},
         tools={
             "logic_mixer.set_volume": [moved(143)],
             "logic_mixer.set_pan": [moved(59)],
@@ -68,7 +74,6 @@ def test_undo_puts_back_what_the_run_moved_on_tracks_it_found_then_undoes_what_i
     assert report == [
         ("pass", "Put back: Set Lead Vocal to -3.0 dB (asked -3.0 dB)"),
         ("pass", "Double's pan goes with the undo steps"),
-        ("pass", "Lead Vocal's send to Verb goes with the undo steps"),
         ("pass", "Put back: Panned Adlib to -5 (asked -5)"),
         ("pass", "Sent 8 undo steps"),
         ("pass", f"Logic's Undo reads {BEFORE!r}, as before the run"),
@@ -76,13 +81,40 @@ def test_undo_puts_back_what_the_run_moved_on_tracks_it_found_then_undoes_what_i
     assert not GROUP_PATH.exists()
 
 
-def test_undo_touches_nothing_when_logic_changed_after_the_run(fake, titles):
+@pytest.mark.parametrize(
+    ("title", "after"),
+    [("Undo Move Region", {}), (AFTER, {"tracks_after": [*TRACKS, "Bass"]}), (AFTER, {"routes_after": ROUTES + "\nBass\tInput 2\tStereo Out\tBus 1\t7"})],
+    ids=["another-edit", "a-track-changed", "a-send-by-hand"],
+)
+def test_undo_touches_nothing_when_logic_changed_after_the_run(fake, titles, title, after):
     serve(fake)
-    ran()
-    titles.append("Undo Move Region")
-    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match=r"reads 'Undo Move Region'.*made 8 undo steps.*Lead Vocal's volume \(was -3.0\)"):
+    ran(**after)
+    titles.append(title)
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match=r"changed after the run ended.*made 8 undo steps.*Lead Vocal's volume \(was -3.0\)"):
         list(undo_group(logic))
     assert sent(fake) == []
+    assert GROUP_PATH.exists()
+
+
+def test_undo_refuses_a_run_made_in_another_project(fake, titles):
+    serve(fake)
+    ran(project="/tmp/Another Song.logicx")
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="Another Song.*open that project"):
+        list(undo_group(logic))
+    assert sent(fake) == [] and GROUP_PATH.exists()
+
+
+def test_a_read_that_fails_before_undo_starts_keeps_the_record(fake, titles, monkeypatch):
+    serve(fake)
+    ran()
+    titles.append(AFTER)
+
+    def stalled():
+        raise ExecutorError("reading the Mixer's inputs, outputs and sends did not finish within 10s")
+
+    monkeypatch.setattr("mixhand.executor.group.read_routes", stalled)
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="did not finish"):
+        list(undo_group(logic))
     assert GROUP_PATH.exists()
 
 

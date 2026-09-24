@@ -29,6 +29,7 @@ class Plan:
     plugins: dict[str, list[str]]
     created: set[str] = field(default_factory=set)
     inserted: set[tuple[str, str]] = field(default_factory=set)
+    added: set[tuple[str, str]] = field(default_factory=set)
     actions: int = 0
 
     @classmethod
@@ -48,12 +49,14 @@ class Plan:
             self.created.add(name)
         if tool == "duplicate_track":
             self.plugins[args["new_name"]] = list(self.plugins.get(args["source"], []))
+            self.sends |= {(args["new_name"], aux) for track, aux in self.sends if track == args["source"]}
         if tool in ("insert_plugin", "create_aux") and result.undo_steps:
             track = args.get("track") or args["name"]
             self.inserted.add((track, args["plugin"]))
             self.plugins.setdefault(track, []).append(args["plugin"])
         if tool == "add_send":
             self.sends.add((args["track"], args["aux"]))
+            self.added.add((args["track"], args["aux"]))
 
 
 def validate(tool: str, args: object, plan: Plan) -> None:
@@ -111,6 +114,11 @@ def _bounds(tool: str, args: dict, plan: Plan) -> None:
             raise InvalidAction(f"send level {args['db']:g} dB is outside {SEND_DB_MIN:g}..{SEND_DB_MAX:g} dB")
         if (args["track"], args["aux"]) not in plan.sends:
             raise InvalidAction(f"{args['track']!r} has no send to {args['aux']!r}; add_send first")
+        if (args["track"], args["aux"]) not in plan.added and args["track"] not in plan.created:
+            raise InvalidAction(
+                f"{args['track']}'s send to {args['aux']} was there before the run, and undo could not always put its "
+                "level back; set levels only on sends this run adds"
+            )
     if tool == "set_plugin_param":
         if (args["track"], args["plugin"]) not in plan.inserted and args["track"] not in plan.created:
             raise InvalidAction(

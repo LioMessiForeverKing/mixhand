@@ -79,7 +79,7 @@ Module: `mixhand/executor/`. Each primitive is a function that returns `ActionRe
 Plus three utilities:
 - `delete_track(track)` — LogicProMCP `logic_tracks.delete` bound by `track_ref`, then a fresh read must show exactly that track gone. Not a planner tool; it lets live tests clean up after themselves.
 - `undo(n: int = 1)` — `Cmd+Z` × n.
-- `begin_group(label) / end_group()` — records each action of a run in `logs/group.json` so `undo_group()` can reverse the whole run. Logic has no undo grouping we can drive, and volume, pan, send-level and plugin-param writes make no undo step, so every `ActionResult` carries `undo_steps` (the steps that call made) and `was` (the level a no-undo write replaced). `undo_group()` checks Logic's Undo title still reads what it did when the run ended, puts back each moved level on a track or send that existed before the run (its first write's `was`), then sends every undo step in one batch. A run that stopped on an `ExecutorError` is not undone: how far that action got is unknown, so it says what to undo by hand.
+- `begin_group(label) / end_group()` — records each action of a run in `logs/group.json` so `undo_group()` can reverse the whole run. Logic has no undo grouping we can drive, and volume, pan, send-level and plugin-param writes make no undo step, so every `ActionResult` carries `undo_steps` (the steps that call made) and `was` (the level a no-undo write replaced). A run that changed nothing is not saved, so it never replaces the last run that did. `undo_group()` refuses unless the front project is the run's and Logic's Undo title, track list and Mixer routing all still read what they did when the run ended (a title names an operation, not whose it was), puts back each moved volume or pan on a track that existed before the run (its first write's `was`), then sends every undo step in one batch. A run that stopped on an `ExecutorError` is not undone: how far that action got is unknown, so it says what to undo by hand.
 
 Environment assumptions (enforce in a `doctor` command, fail loudly if not met):
 - Logic Pro is frontmost, Mixer is open (`X`), window at fixed size, screen at fixed resolution
@@ -137,7 +137,7 @@ Tool schema (`planner/tools.py`) — every tool has `reason: str` as a required 
 2. Plugin is in `available_plugins`
 3. Numeric values within bounds (pan −64..63, volume −17..+6 dB — Logic's fader is too coarse below −17 dB to land near a request, see `SETUP.md` — send −60..0 dB)
 4. No duplicate track names
-5. `set_plugin_param` only on a plugin this run inserted, or on a track it created, because LogicProMCP reports no parameter's value from before a write, so undo could not put one back; and `set_volume` never on a pre-existing track below −17 dB, which undo could not set back
+5. `set_plugin_param` only on a plugin this run inserted, or on a track it created, because LogicProMCP reports no parameter's value from before a write, so undo could not put one back; `set_volume` never on a pre-existing track below −17 dB, which undo could not set back; and `set_send_level` only on a send this run added or a track it created, since a send that was there before can sit below what Mixhand can set
 6. At most 14 actions
 7. Reject and re-prompt the model with the validation error (max 2 retries in a row), never execute an invalid action
 

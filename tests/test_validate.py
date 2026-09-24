@@ -90,9 +90,13 @@ def test_a_track_or_send_made_earlier_in_the_run_can_be_used_later():
         validate("duplicate_track", {"source": "Lead Vocal", "new_name": "Double", "reason": WHY}, plan)
 
 
-def test_a_send_already_in_the_session_can_be_set():
+def test_a_send_that_was_there_before_the_run_keeps_its_level_so_undo_never_has_to_restore_one():
     plan = Plan.of(session(channel("Lead Vocal", sends=[Send(4, "Verb")]), channel("Verb", bus=4)))
-    validate("set_send_level", {"track": "Lead Vocal", "aux": "Verb", "db": -12.0, "reason": WHY}, plan)
+    with pytest.raises(InvalidAction, match="was there before the run"):
+        validate("set_send_level", {"track": "Lead Vocal", "aux": "Verb", "db": -12.0, "reason": WHY}, plan)
+
+    plan.apply("duplicate_track", {"source": "Lead Vocal", "new_name": "Double"}, done(2))
+    validate("set_send_level", {"track": "Double", "aux": "Verb", "db": -12.0, "reason": WHY}, plan)
 
 
 def test_a_fader_below_what_mixhand_can_set_is_left_alone_so_undo_can_put_it_back():

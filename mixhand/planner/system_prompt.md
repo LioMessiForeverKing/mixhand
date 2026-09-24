@@ -17,6 +17,7 @@ What you can reach:
   fader with `set_volume` and each send with `set_send_level`.
 - `set_plugin_param` works only on a Compressor or Channel EQ you inserted in this run, or on a track
   you created in this run. Channel EQ's Low Cut and the Compressor's ratio cannot be set.
+- `set_send_level` works only on a send you added in this run, or on a track you created in this run.
 - The fader goes no lower than -17 dB, so put a quiet double at -17 dB or above.
 
 A typical "bigger, more professional chorus vocal" plan: two doubles of the lead panned left and

@@ -40,8 +40,7 @@ def call(name, n=1, **args):
 
 
 class Stream:
-    def __init__(self, response):
-        self.response = response
+    def __init__(self, response, ends=True):
         self.events = [
             SimpleNamespace(type="response.output_text.delta", delta=part.text)
             for o in response.output
@@ -49,6 +48,8 @@ class Stream:
             for part in o.content
             if part.type == "output_text"
         ]
+        if ends:
+            self.events.append(SimpleNamespace(type=f"response.{response.status}", response=response))
 
     def __enter__(self):
         return self
@@ -59,9 +60,6 @@ class Stream:
     def __iter__(self):
         return iter(self.events)
 
-    def get_final_response(self):
-        return self.response
-
 
 class Client:
     def __init__(self, *replies):
@@ -71,7 +69,8 @@ class Client:
 
     def stream(self, **request):
         self.requests.append(json.loads(json.dumps(request, default=lambda item: item.model_dump(exclude_none=True))))
-        return Stream(self.replies.pop(0))
+        reply = self.replies.pop(0)
+        return reply if isinstance(reply, Stream) else Stream(reply)
 
 
 @pytest.fixture
@@ -79,6 +78,7 @@ def logic(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     titles = iter(["Undo Rename Track", "Undo Create Tracks"])
     monkeypatch.setattr("mixhand.executor.group.undo_title", lambda: next(titles))
+    monkeypatch.setattr("mixhand.executor.group.read_routes", lambda: "Lead Vocal\tInput 1\tStereo Out\t\t8")
     ran = []
 
     def primitive(name, steps=0, fails=False):
@@ -97,7 +97,8 @@ def logic(tmp_path, monkeypatch):
 
 def run(client, lines=None):
     shown, lines = [], [] if lines is None else lines
-    produce(None, client, "make it bigger", session(), text=shown.append, line=lambda s, d: lines.append((s, d)))
+    logic = SimpleNamespace(track_names=lambda: ["Lead Vocal", "Double"])
+    produce(logic, client, "make it bigger", session(), text=shown.append, line=lambda s, d: lines.append((s, d)))
     return "".join(shown)
 
 
@@ -124,6 +125,7 @@ def test_the_plan_streams_then_each_valid_action_runs_and_its_result_goes_back_t
     group = json.loads(GROUP_PATH.read_text())
     assert [(a["tool"], a["undo_steps"]) for a in group["actions"]] == [("duplicate_track", 2), ("set_pan", 0)]
     assert (group["undo_title_before"], group["undo_title_after"], group["failed"]) == ("Undo Rename Track", "Undo Create Tracks", None)
+    assert (group["project"], group["tracks_after"]) == ("/tmp/x.logicx", ["Lead Vocal", "Double"])
 
 
 def test_an_invalid_action_is_not_run_and_the_model_is_told_why(logic):
@@ -146,7 +148,7 @@ def test_three_invalid_actions_in_a_row_stop_the_run_with_nothing_run(logic):
     with pytest.raises(PlannerError, match="3 invalid actions in a row"):
         run(Client(*bad))
     assert logic["ran"] == []
-    assert json.loads(GROUP_PATH.read_text())["failed"] is None
+    assert not GROUP_PATH.exists()
 
 
 def test_a_failed_action_stops_the_run_and_marks_the_group_so_undo_will_not_guess(logic):
@@ -167,15 +169,16 @@ REFUSAL = {"type": "message", "id": "msg_2", "role": "assistant", "status": "com
 
 
 @pytest.mark.parametrize(
-    "response",
+    ("response", "refusal"),
     [
-        reply(call("set_pan", 1, track="Adlib", value=-40), status="incomplete", incomplete="max_output_tokens"),
-        reply(REFUSAL, call("set_pan", 1, track="Adlib", value=-40)),
+        (reply(call("set_pan", 1, track="Adlib", value=-40), status="incomplete", incomplete="max_output_tokens"), r"stopped short \(max_output_tokens\)"),
+        (reply(call("set_pan", 1, track="Adlib", value=-40), status="failed"), r"stopped short \(failed\)"),
+        (reply(REFUSAL, call("set_pan", 1, track="Adlib", value=-40)), "declined"),
     ],
-    ids=["cut-off", "declined"],
+    ids=["cut-off", "failed", "declined"],
 )
-def test_a_cut_off_or_declined_turn_runs_none_of_its_actions(logic, response):
-    with pytest.raises(PlannerError):
+def test_a_cut_off_or_declined_turn_runs_none_of_its_actions(logic, response, refusal):
+    with pytest.raises(PlannerError, match=refusal):
         run(Client(response))
     assert logic["ran"] == []
 
@@ -200,3 +203,17 @@ def test_a_valid_action_between_refusals_starts_the_count_again(logic):
     client = Client(bad(1), reply(call("set_pan", 2, track="Adlib", value=9)), bad(3), bad(4), reply("Done."))
     run(client)
     assert logic["ran"] == [("set_pan", {"track": "Adlib", "value": 9})]
+
+
+def test_a_reply_that_ends_without_a_final_event_runs_none_of_its_actions(logic):
+    with pytest.raises(PlannerError, match="without a final response"):
+        run(Client(Stream(reply(call("set_pan", 1, track="Adlib", value=-40)), ends=False)))
+    assert logic["ran"] == []
+
+
+def test_a_run_that_does_nothing_leaves_the_last_run_undoable(logic):
+    GROUP_PATH.parent.mkdir()
+    GROUP_PATH.write_text('{"label": "the run before"}')
+    with pytest.raises(PlannerError):
+        run(Client(reply(call("set_pan", 1, track="Adlib", value=-40), status="incomplete", incomplete="max_output_tokens")))
+    assert GROUP_PATH.read_text() == '{"label": "the run before"}'

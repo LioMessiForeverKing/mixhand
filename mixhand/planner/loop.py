@@ -27,6 +27,8 @@ MODEL_ENV = "MIXHAND_MODEL"
 DEFAULT_MODEL = "gpt-6-sol"
 RETRIES = 2
 SYSTEM_PROMPT = Path(__file__).with_name("system_prompt.md")
+# The SDK hands back a final response only after response.completed, so a cut-off reply is read off its own event.
+FINAL_EVENTS = ("response.completed", "response.incomplete", "response.failed")
 EXECUTE: dict[str, Callable[..., ActionResult]] = {
     "duplicate_track": duplicate_track,
     "insert_plugin": insert_plugin,
@@ -54,16 +56,16 @@ def produce(
     model = os.environ.get(MODEL_ENV, "").strip() or DEFAULT_MODEL
     plan = Plan.of(session)
     items: list = [{"role": "user", "content": f"{prompt}\n\nThe session, read from Logic just now:\n{as_json(session)}"}]
-    group = begin_group(prompt, [c.name for c in session.tracks])
+    group = begin_group(prompt, session.project.path, [c.name for c in session.tracks])
     try:
         _run(logic, client, model, plan, group, items, text, line)
     except (PlannerError, openai.APIError):
-        end_group(group)
+        end_group(logic, group)
         raise
     except BaseException as e:
-        end_group(group, failed=str(e) or type(e).__name__)
+        end_group(logic, group, failed=str(e) or type(e).__name__)
         raise
-    end_group(group)
+    end_group(logic, group)
 
 
 def _run(
@@ -123,7 +125,12 @@ def _turn(client: openai.OpenAI, model: str, items: list, text: Callable[[str], 
         tools=TOOLS,
         parallel_tool_calls=False,
     ) as stream:
+        final = None
         for event in stream:
             if event.type == "response.output_text.delta":
                 text(event.delta)
-        return stream.get_final_response()
+            elif event.type in FINAL_EVENTS:
+                final = event.response
+    if final is None:
+        raise PlannerError("the model's reply ended without a final response, so none of its actions were run")
+    return final
