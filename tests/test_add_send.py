@@ -6,6 +6,7 @@ from mixhand.executor.logicpro import LogicPro
 from mixhand.executor.primitives import add_send
 
 TRACKS = [("Lead Vocal", "audio"), ("Adlib", "audio"), ("Verb", "aux")]
+PAIR = [("Lead Vocal", "audio"), ("Verb", "aux")]
 
 
 def listing(*tracks):
@@ -136,16 +137,25 @@ def test_a_target_that_is_not_one_aux_is_refused_before_anything_is_touched(fake
     [
         ([strip("Lead Vocal", empty=0), strip("Verb")], "'Lead Vocal' has no empty send slot"),
         ([strip("Lead Vocal"), strip("Verb"), strip("Verb")], "2 strips named 'Verb'"),
-        ([strip("Lead Vocal")], "0 strips named 'Verb'"),
+        ([strip("Lead Vocal")], r"shows no strip for \['Verb'\]"),
         ([strip("Lead Vocal"), strip("Verb", inputs=())], "0 input slots"),
         ([strip("Lead Vocal"), "Verb\tInput 1"], "could not read a Mixer strip's routing"),
     ],
     ids=["no-empty-send", "two-strips", "no-strip", "no-input", "junk"],
 )
 def test_a_mixer_that_cannot_take_the_send_is_refused_before_anything_is_touched(fake, routed, strips, message):
-    serve(fake)
+    serve(fake, PAIR)
     routed["reads"] = [mixer(*strips)]
     with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match=message):
+        add_send(logic, "Lead Vocal", "Verb")
+
+    assert routed["picks"] == []
+
+
+def test_a_hidden_track_stops_the_send_before_its_bus_can_look_free(fake, routed):
+    serve(fake)
+    routed["reads"] = [mixer(strip("Lead Vocal"), strip("Verb"))]
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match=r"shows no strip for \['Adlib'\].*unhide"):
         add_send(logic, "Lead Vocal", "Verb")
 
     assert routed["picks"] == []
@@ -156,14 +166,14 @@ def test_a_failed_input_pick_makes_no_send_and_says_what_to_check(fake, routed, 
         raise ExecutorError("the Input slot menu on Verb did not open")
 
     monkeypatch.setattr("mixhand.executor.primitives.pick_route", refuse)
-    serve(fake)
+    serve(fake, PAIR)
     routed["reads"] = [mixer(strip("Lead Vocal"), strip("Verb"))]
     with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="undo 1 only if it reads Bus 1"):
         add_send(logic, "Lead Vocal", "Verb")
 
 
 def test_an_input_that_never_reads_back_makes_no_send(fake, routed):
-    serve(fake)
+    serve(fake, PAIR)
     unchanged = mixer(strip("Lead Vocal"), strip("Verb"))
     routed["reads"] = [unchanged] * 200
     with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match=r"Verb's input did not read Bus 1.*in \('Input 1',\).*undo 1 only if it reads Bus 1"):
@@ -186,7 +196,7 @@ def test_a_failed_send_pick_gives_the_recovery_for_both_outcomes(fake, routed, m
             raise ExecutorError("Bus 1 → Verb is not in the menu")
 
     monkeypatch.setattr("mixhand.executor.primitives.pick_route", send_fails)
-    serve(fake)
+    serve(fake, PAIR)
     routed["reads"] = [mixer(strip("Lead Vocal"), strip("Verb", inputs=(aux_input,))), mixer(strip("Lead Vocal"), strip("Verb", inputs=("Bus 1",)))]
     with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match=recovery):
         add_send(logic, "Lead Vocal", "Verb")
@@ -218,14 +228,14 @@ def test_anything_but_the_one_route_asked_for_is_not_confirmed(fake, routed, aft
 
 
 def test_a_mixer_that_cannot_be_read_after_the_send_is_not_called_misrouted(fake, routed):
-    serve(fake)
+    serve(fake, PAIR)
     routed["reads"] = [mixer(strip("Lead Vocal"), strip("Verb", inputs=("Bus 1",)))] + ["Lead Vocal\tInput"] * 200
     with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="not confirmed.*the Mixer could not be read.*check Logic before undoing"):
         add_send(logic, "Lead Vocal", "Verb")
 
 
 def test_a_project_switched_during_the_send_is_not_confirmed(fake, routed):
-    serve(fake, project=[{"data": {"filePath": PROJECT}}, {"data": {"filePath": "/Users/me/Music/Real Song.logicx"}}])
+    serve(fake, PAIR, project=[{"data": {"filePath": PROJECT}}, {"data": {"filePath": "/Users/me/Music/Real Song.logicx"}}])
     routed["reads"] = [
         mixer(strip("Lead Vocal"), strip("Verb")),
         mixer(strip("Lead Vocal"), strip("Verb", inputs=("Bus 1",))),

@@ -482,6 +482,12 @@ def add_send(logic: LogicPro, track: str, aux: str) -> ActionResult:
     if track == aux:
         raise ExecutorError(f"{aux!r} cannot send to itself")
     before = routes()
+    hidden = [t["name"] for t in tracks if t["name"] not in {s.name for s in before}]
+    if hidden:
+        raise ExecutorError(
+            f"the Mixer shows no strip for {hidden}, so a bus only they use would look free; "
+            "show every track's strip (unhide the tracks, and check the Mixer's View filters) and run again"
+        )
     source, ret = _strip(before, track), _strip(before, aux)
     if len(ret.inputs) != 1:
         raise ExecutorError(f"{aux!r} shows {len(ret.inputs)} input slots in the Mixer, not one")
