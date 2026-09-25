@@ -256,10 +256,27 @@ def test_a_stereo_delay_readback_showing_another_value_is_not_reported_as_set(fa
     assert fake.log()[-1]["verified"] is False
 
 
-def test_a_stereo_delay_write_that_fails_part_way_says_it_may_have_moved(fake, delay):
+def test_a_stereo_delay_write_that_fails_says_what_each_point_of_failure_leaves(fake, delay):
     serve_delay(fake)
     delay["reply"] = ExecutorError("Crossfeed L->R: stopped moving at 12 %")
-    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="stopped moving at 12 %; .* may have moved, and undo does not restore it"):
+    with LogicPro.from_env() as logic, pytest.raises(
+        ExecutorError, match="stopped moving at 12 %; if that came before the write, nothing changed, and if after it, .* may have moved"
+    ):
         set_plugin_param(logic, "Echo", "Stereo Delay", "Crossfeed L->R", 60)
 
     assert fake.log()[-1]["event"] == "set_plugin_param.refused"
+
+
+def test_a_stereo_delay_write_is_not_confirmed_if_another_project_came_to_the_front(fake, delay):
+    fake.serve(
+        resources={
+            "logic://tracks": [tracks("Lead Vocal", "Echo")],
+            "logic://project/info": [{"data": {"filePath": PROJECT}}, {"data": {"filePath": "/Users/me/Music/Real Song.logicx"}}],
+        },
+        tools={"logic_plugins.get_inventory": [inventory(slot(0, "St-Delay"))]},
+    )
+    delay["reply"] = ("0 %", "60 %", 60)
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="Real Song.*in whichever project was in front"):
+        set_plugin_param(logic, "Echo", "Stereo Delay", "Crossfeed L->R", 60)
+
+    assert fake.log()[-1]["event"] == "set_plugin_param.start"

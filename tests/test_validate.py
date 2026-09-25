@@ -239,3 +239,17 @@ def test_a_copy_of_a_panned_delay_takes_no_crossfeed_either():
     plan.apply("duplicate_track", {"source": "Echo", "new_name": "Echo 2"}, done(2))
     with pytest.raises(InvalidAction, match="set_pan it to 0 first"):
         validate("set_plugin_param", delay_param("Crossfeed L->R", 60, track="Echo 2"), plan)
+
+
+def test_a_crossfeed_the_run_may_not_set_is_refused_for_that_not_for_the_pan():
+    plan = Plan.of(
+        session(
+            Channel(name="Echo", volume_db=0.0, pan=40, plugins=["Stereo Delay"], sends=[], bus=4),
+            Channel(name="Comp", volume_db=0.0, pan=40, plugins=[], sends=[], bus=None),
+        )
+    )
+    with pytest.raises(InvalidAction, match="this run did not put"):
+        validate("set_plugin_param", delay_param("Crossfeed L->R", 60), plan)
+    plan.apply("insert_plugin", {"track": "Comp", "plugin": "Compressor"}, done(1))
+    with pytest.raises(InvalidAction, match="param not mapped"):
+        validate("set_plugin_param", {**delay_param("Crossfeed L->R", 60, track="Comp"), "plugin": "Compressor"}, plan)

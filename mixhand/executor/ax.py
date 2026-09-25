@@ -457,15 +457,20 @@ on run {stripName, label, wanted, target, limit}
                 delay 0.1
             end repeat
         end if
-        set wins to my windowsTitled(stripName)
-        if (count of wins) is not 1 then error "found " & (count of wins) & " plug-in windows titled " & stripName
-        set w to item 1 of wins
         try
+            set wins to my windowsTitled(stripName)
+            if (count of wins) is not 1 then error "found " & (count of wins) & " plug-in windows titled " & stripName
+            set w to item 1 of wins
             if (value of static texts of w) does not contain {"Stereo Delay"} then error "the window titled " & stripName & " is not its Stereo Delay"
             my controlsView(w)
             set out to my setRow(w, label, wanted, target, limit as integer)
         on error failure
-            if opened then click (first button of w whose description is "close")
+            if opened then
+                delay 1
+                repeat with x in my windowsTitled(stripName)
+                    click (first button of x whose description is "close")
+                end repeat
+            end if
             error failure
         end try
         if opened then click (first button of w whose description is "close")
@@ -535,9 +540,9 @@ on setRow(w, label, wanted, target, limit)
         if target is "" then
             set p to pop up button 1 of c
             set was to value of p
-            if was is wanted then return was & tab & was & tab & 0
             set synced to value of checkbox 1 of my labelled(w, "Beat Sync:")
             if synced as text is not in {"1", "true"} then error "Beat Sync is off, so a note does not set the delay time"
+            if was is wanted then return was & tab & was & tab & 0
             perform action "AXPress" of p
             repeat 20 times
                 if (count of (UI elements of p whose role is "AXMenu")) > 0 then exit repeat

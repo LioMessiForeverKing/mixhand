@@ -356,8 +356,13 @@ def _set_delay_param(logic: LogicPro, track: str, param: str, value: float) -> A
     except ExecutorError as e:
         log("set_plugin_param.refused", track=track, plugin="Stereo Delay", param=param, requested=value, error=str(e))
         raise ExecutorError(
-            f"{e}; {track}'s Stereo Delay {param} may have moved, and undo does not restore it: check it in the plugin"
+            f"{e}; if that came before the write, nothing changed, and if after it, {track}'s Stereo Delay {param} may have "
+            "moved and undo does not restore it: check it in the plugin"
         ) from e
+    try:
+        logic.require_project()
+    except ExecutorError as e:
+        raise ExecutorError(f"{e}; a Stereo Delay {param} on {track} was set to {shown}, in whichever project was in front") from e
     confirmed = shown == wanted
     log(
         "set_plugin_param.done",
