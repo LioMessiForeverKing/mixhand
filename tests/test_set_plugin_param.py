@@ -162,3 +162,104 @@ def test_a_refused_write_says_only_what_it_knows_about_the_plugin(fake, payload,
         set_plugin_param(logic, "Lead Vocal", "Channel EQ", "Peak 2 Frequency", 1000)
 
     assert fake.log()[-1]["event"] == "set_plugin_param.refused"
+
+
+@pytest.fixture
+def delay(monkeypatch):
+    done = {"calls": [], "reply": None}
+
+    def step(*args):
+        done["calls"].append(args)
+        if isinstance(done["reply"], Exception):
+            raise done["reply"]
+        return done["reply"]
+
+    monkeypatch.setattr("mixhand.executor.primitives.set_delay_param", step)
+    return done
+
+
+def serve_delay(fake, plugins=(slot(0, "St-Delay"),)):
+    fake.serve(
+        resources={"logic://tracks": [tracks("Lead Vocal", "Echo")]},
+        tools={"logic_plugins.get_inventory": [inventory(*plugins)]},
+    )
+
+
+@pytest.mark.parametrize(
+    ("param", "value", "row", "wanted", "target"),
+    [
+        ("Crossfeed L->R", 60, "Crossfeed L->R:", "60 %", "60"),
+        ("Right Feedback", 0, "Right Feedback:", "0 %", "0"),
+        ("Left Note", 0.75, "Left Note:", "1/8 dotted", ""),
+        ("Right Note", 1, "Right Note:", "1/4", ""),
+    ],
+    ids=["crossfeed", "feedback-floor", "dotted-note", "whole-beat"],
+)
+def test_a_stereo_delay_row_is_found_by_its_label_and_confirmed_by_logics_own_text(fake, delay, param, value, row, wanted, target):
+    serve_delay(fake)
+    delay["reply"] = ("35 %", wanted, 25)
+    with LogicPro.from_env() as logic:
+        result = set_plugin_param(logic, "Echo", "Stereo Delay", param, value)
+
+    assert result.ok and result.verified and result.undo_steps == 0
+    assert result.detail.startswith(f"Set Echo's Stereo Delay {param} to {wanted} (asked {value:g} ")
+    assert delay["calls"] == [("Echo", row, wanted, target, 110)]
+    assert [e["event"] for e in fake.log()] == ["set_plugin_param.start", "set_plugin_param.done"]
+
+
+def test_a_stereo_delay_row_already_there_is_reported_as_unchanged(fake, delay):
+    serve_delay(fake)
+    delay["reply"] = ("60 %", "60 %", 0)
+    with LogicPro.from_env() as logic:
+        result = set_plugin_param(logic, "Echo", "Stereo Delay", "Crossfeed R->L", 60)
+
+    assert result.verified and result.detail == "Echo's Stereo Delay Crossfeed R->L is already 60 %"
+
+
+@pytest.mark.parametrize(
+    ("param", "value", "said"),
+    [
+        ("Left Feedback", 50.5, "whole percent from 0 to 100"),
+        ("Crossfeed L->R", 101, "whole percent from 0 to 100"),
+        ("Left Note", 0.33, "note length in beats"),
+        ("Right Note", 4, "note length in beats"),
+        ("Left Input", 1, "param not mapped"),
+    ],
+)
+def test_a_stereo_delay_value_logic_cannot_show_touches_nothing(fake, delay, param, value, said):
+    serve_delay(fake)
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match=said):
+        set_plugin_param(logic, "Echo", "Stereo Delay", param, value)
+
+    assert fake.calls() == [] and delay["calls"] == []
+
+
+@pytest.mark.parametrize(
+    ("plugins", "count"),
+    [((slot(0, "ChromaVerb"),), 0), ((slot(0, "St-Delay"), slot(1, "St-Delay")), 2)],
+    ids=["absent", "twice"],
+)
+def test_a_track_without_exactly_one_stereo_delay_is_refused_before_writing(fake, delay, plugins, count):
+    serve_delay(fake, plugins=plugins)
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match=f"has {count} Stereo Delay plugins"):
+        set_plugin_param(logic, "Echo", "Stereo Delay", "Left Feedback", 10)
+
+    assert delay["calls"] == []
+
+
+def test_a_stereo_delay_readback_showing_another_value_is_not_reported_as_set(fake, delay):
+    serve_delay(fake)
+    delay["reply"] = ("0 %", "59 %", 110)
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="reads '59 %', not '60 %', and read '0 %' before"):
+        set_plugin_param(logic, "Echo", "Stereo Delay", "Crossfeed L->R", 60)
+
+    assert fake.log()[-1]["verified"] is False
+
+
+def test_a_stereo_delay_write_that_fails_part_way_says_it_may_have_moved(fake, delay):
+    serve_delay(fake)
+    delay["reply"] = ExecutorError("Crossfeed L->R: stopped moving at 12 %")
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="stopped moving at 12 %; .* may have moved, and undo does not restore it"):
+        set_plugin_param(logic, "Echo", "Stereo Delay", "Crossfeed L->R", 60)
+
+    assert fake.log()[-1]["event"] == "set_plugin_param.refused"

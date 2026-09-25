@@ -8,6 +8,7 @@ from mixhand.executor.primitives import (
     SEND_DB_MIN,
     VOLUME_DB_MAX,
     VOLUME_DB_MIN,
+    _delay_param,
     _plugin_param,
 )
 from mixhand.planner.tools import TOOLS
@@ -30,6 +31,8 @@ class Plan:
     created: set[str] = field(default_factory=set)
     inserted: set[tuple[str, str]] = field(default_factory=set)
     added: set[tuple[str, str]] = field(default_factory=set)
+    panned: set[str] = field(default_factory=set)
+    crossfed: set[tuple[str, str]] = field(default_factory=set)
     actions: int = 0
 
     @classmethod
@@ -39,6 +42,7 @@ class Plan:
             tracks={c.name for c in session.tracks},
             sends={(c.name, s.aux) for c in session.tracks for s in c.sends if s.aux},
             plugins={c.name: list(c.plugins) for c in session.tracks},
+            panned={c.name for c in session.tracks if c.pan},
         )
 
     def apply(self, tool: str, args: dict, result: ActionResult) -> None:
@@ -49,6 +53,9 @@ class Plan:
         if tool == "duplicate_track":
             self.plugins[args["new_name"]] = list(self.plugins.get(args["source"], []))
             self.sends |= {(args["new_name"], aux) for track, aux in self.sends if track == args["source"]}
+            if args["source"] in self.panned:
+                self.panned.add(args["new_name"])
+            self.crossfed |= {(args["new_name"], side) for track, side in self.crossfed if track == args["source"]}
         if tool in ("insert_plugin", "create_aux") and result.undo_steps:
             track = args.get("track") or args["name"]
             self.inserted.add((track, args["plugin"]))
@@ -57,6 +64,14 @@ class Plan:
             self.sends.add((args["track"], args["aux"]))
         if tool == "add_send" and result.undo_steps:
             self.added.add((args["track"], args["aux"]))
+        if tool == "set_pan" and args["value"]:
+            self.panned.add(args["track"])
+        if tool == "set_pan" and not args["value"]:
+            self.panned.discard(args["track"])
+        if tool == "set_plugin_param" and args["param"].startswith("Crossfeed") and args["value"]:
+            self.crossfed.add((args["track"], args["param"]))
+        if tool == "set_plugin_param" and args["param"].startswith("Crossfeed") and not args["value"]:
+            self.crossfed.discard((args["track"], args["param"]))
 
 
 def validate(tool: str, args: object, plan: Plan) -> None:
@@ -107,6 +122,12 @@ def _bounds(tool: str, args: dict, plan: Plan) -> None:
         )
     if tool == "set_pan" and not PAN_MIN <= args["value"] <= PAN_MAX:
         raise InvalidAction(f"pan {args['value']} is outside {PAN_MIN}..{PAN_MAX}")
+    if tool == "set_pan" and args["value"] and any(track == args["track"] for track, _ in plan.crossfed):
+        raise InvalidAction(
+            f"{args['track']} is a ping-pong delay: its crossfeed already moves the echoes between the sides, so it stays centred"
+        )
+    if tool == "set_plugin_param" and args["param"].startswith("Crossfeed") and args["value"] and args["track"] in plan.panned:
+        raise InvalidAction(f"{args['track']} is panned off centre, and a ping-pong delay stays centred; set_pan it to 0 first")
     if tool == "add_send" and args["track"] == args["aux"]:
         raise InvalidAction(f"{args['aux']!r} cannot send to itself")
     if tool == "set_send_level":
@@ -126,6 +147,9 @@ def _bounds(tool: str, args: dict, plan: Plan) -> None:
                 "on a plugin that was there before"
             )
         try:
-            _plugin_param(args["plugin"], args["param"], args["value"])
+            if args["plugin"] == "Stereo Delay":
+                _delay_param(args["param"], args["value"])
+            else:
+                _plugin_param(args["plugin"], args["param"], args["value"])
         except ExecutorError as e:
             raise InvalidAction(str(e)) from e

@@ -160,3 +160,74 @@ def test_asking_to_add_a_send_that_already_exists_does_not_make_its_level_settab
     plan.apply("add_send", {"track": "Lead Vocal", "aux": "Verb"}, done(0))
     with pytest.raises(InvalidAction, match="was there before the run"):
         validate("set_send_level", {"track": "Lead Vocal", "aux": "Verb", "db": -12.0, "reason": WHY}, plan)
+
+
+def delay_plan(*channels):
+    plan = Plan.of(session(*channels) if channels else session())
+    plan.apply("create_aux", {"name": "Echo", "plugin": "Stereo Delay"}, done(4))
+    return plan
+
+
+def delay_param(param, value, track="Echo"):
+    return {"track": track, "plugin": "Stereo Delay", "param": param, "value": value, "reason": WHY}
+
+
+def test_a_stereo_delay_this_run_made_takes_its_crossfeed_feedback_and_notes():
+    plan = delay_plan()
+    for param, value in [("Crossfeed L->R", 60), ("Crossfeed R->L", 0), ("Left Feedback", 100), ("Left Note", 0.75), ("Right Note", 3)]:
+        validate("set_plugin_param", delay_param(param, value), plan)
+    for param, value, refusal in [("Left Feedback", 20.5, "whole percent"), ("Right Note", 0.33, "note length in beats")]:
+        with pytest.raises(InvalidAction, match=refusal):
+            validate("set_plugin_param", delay_param(param, value), plan)
+
+
+def test_a_stereo_delay_that_was_there_before_the_run_keeps_its_settings():
+    plan = Plan.of(session(channel("Lead Vocal"), channel("Old Echo", bus=4, plugins=["Stereo Delay"])))
+    with pytest.raises(InvalidAction, match="undo could not put back"):
+        validate("set_plugin_param", delay_param("Crossfeed L->R", 60, track="Old Echo"), plan)
+
+
+def test_a_ping_pong_aux_is_not_panned():
+    plan = delay_plan()
+    plan.apply("set_plugin_param", delay_param("Crossfeed L->R", 60), done(0))
+    with pytest.raises(InvalidAction, match="stays centred"):
+        validate("set_pan", {"track": "Echo", "value": 50, "reason": WHY}, plan)
+    validate("set_pan", {"track": "Echo", "value": 0, "reason": WHY}, plan)
+    validate("set_pan", {"track": "Lead Vocal", "value": 50, "reason": WHY}, plan)
+
+
+def test_a_ping_pong_aux_is_centred_until_both_crossfeeds_are_back_at_zero():
+    plan = delay_plan()
+    plan.apply("set_plugin_param", delay_param("Crossfeed L->R", 60), done(0))
+    plan.apply("set_plugin_param", delay_param("Crossfeed R->L", 60), done(0))
+    plan.apply("set_plugin_param", delay_param("Crossfeed R->L", 0), done(0))
+    with pytest.raises(InvalidAction, match="stays centred"):
+        validate("set_pan", {"track": "Echo", "value": 50, "reason": WHY}, plan)
+    plan.apply("set_plugin_param", delay_param("Crossfeed L->R", 0), done(0))
+    validate("set_pan", {"track": "Echo", "value": 50, "reason": WHY}, plan)
+
+
+def test_a_panned_delay_takes_no_crossfeed_until_it_is_centred():
+    plan = delay_plan()
+    plan.apply("set_pan", {"track": "Echo", "value": 50}, done(0))
+    with pytest.raises(InvalidAction, match="set_pan it to 0 first"):
+        validate("set_plugin_param", delay_param("Crossfeed R->L", 60), plan)
+    validate("set_plugin_param", delay_param("Crossfeed R->L", 0), plan)
+    validate("set_plugin_param", delay_param("Left Feedback", 10), plan)
+    plan.apply("set_pan", {"track": "Echo", "value": 0}, done(0))
+    validate("set_plugin_param", delay_param("Crossfeed R->L", 60), plan)
+
+
+def test_a_track_panned_before_the_run_takes_no_crossfeed():
+    plan = Plan.of(session(Channel(name="Echo", volume_db=0.0, pan=40, plugins=[], sends=[], bus=4)))
+    plan.apply("insert_plugin", {"track": "Echo", "plugin": "Stereo Delay"}, done(1))
+    with pytest.raises(InvalidAction, match="set_pan it to 0 first"):
+        validate("set_plugin_param", delay_param("Crossfeed L->R", 60), plan)
+
+
+def test_a_copy_of_a_ping_pong_aux_is_not_panned_either():
+    plan = delay_plan()
+    plan.apply("set_plugin_param", delay_param("Crossfeed L->R", 60), done(0))
+    plan.apply("duplicate_track", {"source": "Echo", "new_name": "Echo 2"}, done(2))
+    with pytest.raises(InvalidAction, match="stays centred"):
+        validate("set_pan", {"track": "Echo 2", "value": -50, "reason": WHY}, plan)

@@ -15,8 +15,11 @@ What you can reach:
   its source's plugin, so make the copies before putting a plugin on the track they copy.
 - A new aux and a new send both start at -inf. A reverb or delay aux is silent until you raise its
   fader with `set_volume` and each send with `set_send_level`.
-- `set_plugin_param` works only on a Compressor or Channel EQ you inserted in this run, or on a track
-  you created in this run. Channel EQ's Low Cut and the Compressor's ratio cannot be set.
+- `set_plugin_param` works only on a Compressor, Channel EQ or Stereo Delay you inserted in this run,
+  or on a track you created in this run. Channel EQ's Low Cut and the Compressor's ratio cannot be set.
+- Echoes that alternate sides are a ping-pong delay: a Stereo Delay aux with both Crossfeeds up (40 to
+  70 %), both Feedbacks low (0 to 20 %) and a different Note on each side, such as 1 and 0.75 beats.
+  The crossfeed does the moving, so a ping-pong aux stays centred: never pan it.
 - `set_send_level` works only on a send you added in this run, or on a track you created in this run.
 - The fader goes no lower than -17 dB, so put a quiet double at -17 dB or above.
 
