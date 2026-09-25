@@ -281,3 +281,16 @@ def test_a_stereo_delay_write_is_not_confirmed_if_another_project_came_to_the_fr
 
     last = fake.log()[-1]
     assert (last["event"], last["was"], last["shown"], last["steps"]) == ("set_plugin_param.refused", "0 %", "60 %", 60)
+
+
+def test_a_stereo_delay_already_set_says_so_if_another_project_came_to_the_front(fake, delay):
+    fake.serve(
+        resources={
+            "logic://tracks": [tracks("Lead Vocal", "Echo")],
+            "logic://project/info": [{"data": {"filePath": PROJECT}}, {"data": {"filePath": "/Users/me/Music/Real Song.logicx"}}],
+        },
+        tools={"logic_plugins.get_inventory": [inventory(slot(0, "St-Delay"))]},
+    )
+    delay["reply"] = ("60 %", "60 %", 0)
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="Crossfeed L->R on Echo already read 60 %, in whichever"):
+        set_plugin_param(logic, "Echo", "Stereo Delay", "Crossfeed L->R", 60)
