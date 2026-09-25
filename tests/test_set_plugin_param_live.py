@@ -1,10 +1,10 @@
 import os
 
 import pytest
-from test_create_aux_live import UNDO_ITEM, osascript
+from test_create_aux_live import UNDO_ITEM, UNDONE, osascript
 
 from mixhand.executor.logicpro import LogicPro
-from mixhand.executor.primitives import insert_plugin, inserts, set_plugin_param, track_index, undo
+from mixhand.executor.primitives import create_aux, insert_plugin, inserts, set_plugin_param, track_index, undo
 
 pytestmark = [
     pytest.mark.live,
@@ -33,6 +33,12 @@ SWEEPS = {
     ],
 }
 
+DELAY = "Mixhand Delay"
+DELAY_SWEEP = [
+    ("Crossfeed L->R", 60), ("Crossfeed R->L", 45), ("Left Feedback", 0), ("Right Feedback", 100), ("Left Note", 0.75),
+    ("Right Note", 1.5), ("Crossfeed L->R", 1), ("Left Note", 0.25), ("Right Feedback", 99), ("Right Note", 3),
+]
+
 
 def plugins_on(logic):
     return [s["name"] for s in inserts(logic, track_index(logic, TRACK), TRACK) if s["occupied"]]
@@ -58,4 +64,24 @@ def test_set_each_mapped_param_then_undo_the_plugin(plugin):
             left = osascript(UNDO_ITEM)
             assert left == INSERTED, f"the last edit is {left!r}, not the test's insert; remove {plugin} from {TRACK} by hand"
             undo(logic, 1)
+    assert osascript(UNDO_ITEM) == before
+
+
+def test_set_each_stereo_delay_row_then_undo_the_aux():
+    before = osascript(UNDO_ITEM)
+    with LogicPro.from_env() as logic:
+        if any(t["name"] == DELAY for t in logic.tracks()):
+            pytest.fail(f"delete {DELAY!r} before running this")
+        assert create_aux(logic, DELAY, "Stereo Delay").verified
+        try:
+            for param, value in DELAY_SWEEP:
+                first = set_plugin_param(logic, DELAY, "Stereo Delay", param, value)
+                again = set_plugin_param(logic, DELAY, "Stereo Delay", param, value)
+                shown = first.detail.split(" to ", 1)[1].split(" (asked", 1)[0]
+                assert first.verified and again.detail == f"{DELAY}'s Stereo Delay {param} is already {shown}"
+        finally:
+            for title in UNDONE:
+                left = osascript(UNDO_ITEM)
+                assert left == title, f"the last edit is {left!r}, not {title!r}; remove {DELAY} by hand"
+                undo(logic, 1)
     assert osascript(UNDO_ITEM) == before

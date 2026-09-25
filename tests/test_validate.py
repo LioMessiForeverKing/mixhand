@@ -231,3 +231,11 @@ def test_a_copy_of_a_ping_pong_aux_is_not_panned_either():
     plan.apply("duplicate_track", {"source": "Echo", "new_name": "Echo 2"}, done(2))
     with pytest.raises(InvalidAction, match="stays centred"):
         validate("set_pan", {"track": "Echo 2", "value": -50, "reason": WHY}, plan)
+
+
+def test_a_copy_of_a_panned_delay_takes_no_crossfeed_either():
+    plan = delay_plan()
+    plan.apply("set_pan", {"track": "Echo", "value": 50}, done(0))
+    plan.apply("duplicate_track", {"source": "Echo", "new_name": "Echo 2"}, done(2))
+    with pytest.raises(InvalidAction, match="set_pan it to 0 first"):
+        validate("set_plugin_param", delay_param("Crossfeed L->R", 60, track="Echo 2"), plan)

@@ -487,18 +487,17 @@ end windowsTitled
 
 on controlsView(w)
     tell application "System Events" to tell process "Logic Pro"
-        set v to first menu button of w whose description is "view"
-        if title of v is "Controls" then return
+        if title of (first menu button of w whose description is "view") is "Controls" then return
         set frontmost to true
         perform action "AXRaise" of w
         delay 0.2
-        perform action "AXShowMenu" of v
+        perform action "AXShowMenu" of (first menu button of w whose description is "view")
         delay 0.5
         key code 125
         delay 0.2
         key code 36
         repeat 20 times
-            if title of v is "Controls" then return
+            if title of (first menu button of w whose description is "view") is "Controls" then return
             delay 0.1
         end repeat
         error "the plug-in window did not switch to its Controls view"
