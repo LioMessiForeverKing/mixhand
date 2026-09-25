@@ -457,20 +457,15 @@ on run {stripName, label, wanted, target, limit}
                 delay 0.1
             end repeat
         end if
+        set wins to my windowsTitled(stripName)
+        if (count of wins) is not 1 then error "found " & (count of wins) & " plug-in windows titled " & stripName
+        set w to item 1 of wins
         try
-            set wins to my windowsTitled(stripName)
-            if (count of wins) is not 1 then error "found " & (count of wins) & " plug-in windows titled " & stripName
-            set w to item 1 of wins
             if (value of static texts of w) does not contain {"Stereo Delay"} then error "the window titled " & stripName & " is not its Stereo Delay"
             my controlsView(w)
             set out to my setRow(w, label, wanted, target, limit as integer)
         on error failure
-            if opened then
-                delay 1
-                repeat with x in my windowsTitled(stripName)
-                    click (first button of x whose description is "close")
-                end repeat
-            end if
+            if opened then click (first button of w whose description is "close")
             error failure
         end try
         if opened then click (first button of w whose description is "close")

@@ -276,7 +276,8 @@ def test_a_stereo_delay_write_is_not_confirmed_if_another_project_came_to_the_fr
         tools={"logic_plugins.get_inventory": [inventory(slot(0, "St-Delay"))]},
     )
     delay["reply"] = ("0 %", "60 %", 60)
-    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="Real Song.*in whichever project was in front"):
+    with LogicPro.from_env() as logic, pytest.raises(ExecutorError, match="Real Song.*moved from 0 % to 60 %, in whichever project was in front"):
         set_plugin_param(logic, "Echo", "Stereo Delay", "Crossfeed L->R", 60)
 
-    assert fake.log()[-1]["event"] == "set_plugin_param.start"
+    last = fake.log()[-1]
+    assert (last["event"], last["was"], last["shown"], last["steps"]) == ("set_plugin_param.refused", "0 %", "60 %", 60)
