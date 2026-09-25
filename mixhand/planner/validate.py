@@ -151,5 +151,5 @@ def _bounds(tool: str, args: dict, plan: Plan) -> None:
                 _plugin_param(args["plugin"], args["param"], args["value"])
         except ExecutorError as e:
             raise InvalidAction(str(e)) from e
-        if args["plugin"] == "Stereo Delay" and args["param"].startswith("Crossfeed") and args["value"] and args["track"] in plan.panned:
+        if args["param"].startswith("Crossfeed") and args["value"] and args["track"] in plan.panned:
             raise InvalidAction(f"{args['track']} is panned off centre, and a ping-pong delay stays centred; set_pan it to 0 first")
