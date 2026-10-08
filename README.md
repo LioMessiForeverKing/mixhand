@@ -65,7 +65,7 @@ about. Mixhand never saves.
 | `mixhand doctor` | Checks that this Mac and Logic are ready, and names what is missing |
 | `mixhand state` | Prints the session Mixhand sees, as JSON |
 | `mixhand produce "<prompt>"` | Plans and runs the change, then asks for follow-ups |
-| `mixhand undo` | Undoes the last run that changed something, follow-ups included; refuses one that stopped partway |
+| `mixhand undo` | Undoes the last run that changed something, follow-ups included |
 | `mixhand explain` | Reprints the last run's plan, actions and reasons |
 
 `state` and `produce` take `--key` (Logic does not expose the song's key) and `--start-bar` with
