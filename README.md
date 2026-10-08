@@ -2,7 +2,7 @@
 
 Claude Code for Logic Pro. Type one sentence about your vocals in the terminal, and Mixhand plans
 the change and carries it out in Logic, one logged action at a time, each with its reason. One
-command takes the whole run back.
+command takes a finished run back.
 
 ```console
 $ mixhand produce "Make my chorus vocals sound bigger and more professional. Keep my voice upfront."
@@ -65,14 +65,15 @@ about. Mixhand never saves.
 | `mixhand doctor` | Checks that this Mac and Logic are ready, and names what is missing |
 | `mixhand state` | Prints the session Mixhand sees, as JSON |
 | `mixhand produce "<prompt>"` | Plans and runs the change, then asks for follow-ups |
-| `mixhand undo` | Undoes the last run, follow-ups included |
+| `mixhand undo` | Undoes the last run that changed something, follow-ups included; refuses one that stopped partway |
 | `mixhand explain` | Reprints the last run's plan, actions and reasons |
 
 `state` and `produce` take `--key` (Logic does not expose the song's key) and `--start-bar` with
 `--end-bar` to name the section to work on.
 
 Mixhand writes to `logs/` in the directory you run it from: every action to `actions.jsonl`, which
-`explain` reads, and the last run's undo record to `group.json`, which `undo` reads.
+`explain` reads, and the undo record of the last run that changed something to `group.json`, which
+`undo` reads.
 
 ## Tests
 
@@ -82,8 +83,8 @@ MIXHAND_LIVE=1 uv run pytest -m live
 ```
 
 The first command runs against a fake LogicProMCP and needs no Logic. The live suite drives the real
-Logic on `MIXHAND_PROJECT`, which needs a `Lead Vocal` track with at least one region. Keep your
-hands off Logic while it runs. `SETUP.md` says what each live test does.
+Logic on `MIXHAND_PROJECT`, which needs a `Lead Vocal` track with at least one region and no
+plugins. Keep your hands off Logic while it runs. `SETUP.md` says what each live test does.
 
 ## More
 
