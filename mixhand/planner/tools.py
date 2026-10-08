@@ -1,4 +1,7 @@
 from mixhand.executor.primitives import (
+    DELAY_NOTE,
+    DELAY_NOTES,
+    DELAY_PERCENT,
     EQ_BANDS,
     EQ_DB_MAX,
     EQ_DB_MIN,
@@ -15,7 +18,8 @@ from mixhand.executor.primitives import (
 )
 
 PLUGINS = [*INSERTABLE, *PLUGIN_MENU]
-PARAMS = ["Threshold", *(f"{band} {kind}" for band in EQ_BANDS for kind in ("Frequency", "Gain"))]
+PARAMS = ["Threshold", *(f"{band} {kind}" for band in EQ_BANDS for kind in ("Frequency", "Gain")), *DELAY_PERCENT, *DELAY_NOTE]
+BEATS = ", ".join(f"{beats:g} = {note}" for beats, note in DELAY_NOTES.items())
 TRACK = {"type": "string", "description": "The exact name of a track in the session, or one this run created."}
 NEW_NAME = {"type": "string", "description": "A name no track has yet."}
 REASON = {"type": "string", "description": "One sentence, specific to this session: the track, the problem, the number."}
@@ -83,11 +87,12 @@ TOOLS = [
     ),
     _tool(
         "set_plugin_param",
-        "Set one parameter on a Compressor or Channel EQ this run inserted. Compressor Threshold is a whole percent of its "
-        f"slider, 0 to 100. Channel EQ {EQ_BANDS[0]} to {EQ_BANDS[-1]} Frequency is whole Hz, {EQ_HZ_MIN} to {EQ_HZ_MAX}; "
-        f"Gain is {EQ_DB_MIN:g} to {EQ_DB_MAX:+g} dB in tenths. Nothing else can be set.",
+        "Set one parameter on a Compressor, Channel EQ or Stereo Delay this run inserted. Compressor Threshold is a whole "
+        f"percent of its slider, 0 to 100. Channel EQ {EQ_BANDS[0]} to {EQ_BANDS[-1]} Frequency is whole Hz, {EQ_HZ_MIN} to "
+        f"{EQ_HZ_MAX}; Gain is {EQ_DB_MIN:g} to {EQ_DB_MAX:+g} dB in tenths. Stereo Delay {', '.join(DELAY_PERCENT)} are "
+        f"whole percent, 0 to 100; Left Note and Right Note are the repeat time in beats: {BEATS}. Nothing else can be set.",
         track=TRACK,
-        plugin={"type": "string", "enum": ["Compressor", "Channel EQ"]},
+        plugin={"type": "string", "enum": ["Compressor", "Channel EQ", "Stereo Delay"]},
         param={"type": "string", "enum": PARAMS},
         value={"type": "number"},
     ),

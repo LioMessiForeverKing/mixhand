@@ -435,6 +435,155 @@ on run {stripName, busName, target, tolerance, limit}
 end run
 """
 
+# Only the plug-in window's Controls view labels its rows, and its View menu never appears in AX, so it is picked by keyboard.
+SET_DELAY_PARAM = MIXER_STRIPS + """
+on run {stripName, label, wanted, target, limit}
+    set area to my mixerStrips()
+    considering case
+    tell application "System Events" to tell process "Logic Pro"
+        set strips to {}
+        repeat with s in UI elements of area
+            if (value of text fields of s whose description is "name") is {stripName} then set end of strips to contents of s
+        end repeat
+        if (count of strips) is not 1 then error "found " & (count of strips) & " Mixer strips named " & stripName
+        set slots to groups of (item 1 of strips) whose description is "St-Delay"
+        if (count of slots) is not 1 then error "found " & (count of slots) & " Stereo Delay slots on " & stripName
+        set opened to false
+        if (count of (my windowsTitled(stripName))) is 0 then
+            click (first button of (item 1 of slots) whose description is "open")
+            set opened to true
+            repeat 30 times
+                if (count of (my windowsTitled(stripName))) > 0 then exit repeat
+                delay 0.1
+            end repeat
+        end if
+        set wins to my windowsTitled(stripName)
+        if (count of wins) is not 1 then error "found " & (count of wins) & " plug-in windows titled " & stripName
+        set w to item 1 of wins
+        try
+            if (value of static texts of w) does not contain {"Stereo Delay"} then error "the window titled " & stripName & " is not its Stereo Delay"
+            my controlsView(w)
+            set out to my setRow(w, label, wanted, target, limit as integer)
+        on error failure
+            if opened then click (first button of w whose description is "close")
+            error failure
+        end try
+        if opened then click (first button of w whose description is "close")
+        return out
+    end tell
+    end considering
+end run
+
+on windowsTitled(stripName)
+    tell application "System Events" to tell process "Logic Pro"
+        set found to {}
+        repeat with x in windows
+            set t to title of x
+            if t is stripName then set end of found to contents of x
+        end repeat
+        return found
+    end tell
+end windowsTitled
+
+on controlsView(w)
+    tell application "System Events" to tell process "Logic Pro"
+        if title of (first menu button of w whose description is "view") is "Controls" then return
+        set frontmost to true
+        perform action "AXRaise" of w
+        delay 0.2
+        perform action "AXShowMenu" of (first menu button of w whose description is "view")
+        delay 0.5
+        key code 125
+        delay 0.2
+        key code 36
+        repeat 20 times
+            if title of (first menu button of w whose description is "view") is "Controls" then return
+            delay 0.1
+        end repeat
+        error "the plug-in window did not switch to its Controls view"
+    end tell
+end controlsView
+
+on labelled(w, label)
+    tell application "System Events" to tell process "Logic Pro"
+        set hits to {}
+        repeat with r in rows of table 1 of scroll area 1 of w
+            set c to UI element 1 of r
+            if (value of static texts of c) contains {label} then set end of hits to c
+        end repeat
+        if (count of hits) is not 1 then error "found " & (count of hits) & " rows labelled " & label
+        return item 1 of hits
+    end tell
+end labelled
+
+on readout(s)
+    tell application "System Events" to tell process "Logic Pro"
+        repeat 20 times
+            try
+                set d to value of attribute "AXValueDescription" of s
+                if d is not missing value and d is not "" then return d
+            end try
+            delay 0.05
+        end repeat
+    end tell
+    error "the slider gave no value"
+end readout
+
+on setRow(w, label, wanted, target, limit)
+    tell application "System Events" to tell process "Logic Pro"
+        set c to my labelled(w, label)
+        if target is "" then
+            set p to pop up button 1 of c
+            set was to value of p
+            set synced to value of checkbox 1 of my labelled(w, "Beat Sync:")
+            if synced as text is not in {"1", "true"} then error "Beat Sync is off, so a note does not set the delay time"
+            if was is wanted then return was & tab & was & tab & 0
+            perform action "AXPress" of p
+            repeat 20 times
+                if (count of (UI elements of p whose role is "AXMenu")) > 0 then exit repeat
+                delay 0.1
+            end repeat
+            if (count of (UI elements of p whose role is "AXMenu")) is 0 then error "the " & label & " menu did not open"
+            set m to item 1 of (UI elements of p whose role is "AXMenu")
+            set hits to {}
+            repeat with i in menu items of m
+                set t to title of i
+                if t is wanted then set end of hits to contents of i
+            end repeat
+            if (count of hits) is not 1 then
+                perform action "AXCancel" of m
+                error "the " & label & " menu offers " & (count of hits) & " items titled " & wanted
+            end if
+            perform action "AXPress" of item 1 of hits
+            repeat 20 times
+                if value of p is wanted then exit repeat
+                delay 0.1
+            end repeat
+            return was & tab & (value of p) & tab & 1
+        end if
+        set s to slider 1 of group 1 of c
+        set was to my readout(s)
+        set d to was
+        set steps to 0
+        set still to 0
+        repeat while d is not wanted
+            if steps >= limit then error label & " still read " & d & " after " & steps & " steps"
+            set value of s to (target as integer)
+            set steps to steps + 1
+            set now to my readout(s)
+            if now is d then
+                set still to still + 1
+                if still >= 3 then error label & " stopped moving at " & d
+            else
+                set still to 0
+            end if
+            set d to now
+        end repeat
+        return was & tab & d & tab & steps
+    end tell
+end setRow
+"""
+
 # A menu item's title is only refreshed when its menu opens.
 UNDO_TITLE = """
 tell application "System Events" to tell process "Logic Pro"
@@ -467,6 +616,15 @@ def read_send_level(strip: str, bus: int) -> str:
 def step_send_level(strip: str, bus: int, target: int, tolerance: int, limit: int) -> tuple[str, str, int]:
     out = _run(
         STEP_SEND_LEVEL, f"moving {strip}'s send on Bus {bus}", strip, f"Bus {bus}", str(target), str(tolerance), str(limit),
+        timeout=STEP_WITHIN_S,
+    )
+    was, landed, steps = out.split("\t")
+    return was, landed, int(steps)
+
+
+def set_delay_param(strip: str, label: str, wanted: str, target: str, limit: int) -> tuple[str, str, int]:
+    out = _run(
+        SET_DELAY_PARAM, f"setting {strip}'s Stereo Delay {label.rstrip(':')}", strip, label, wanted, target, str(limit),
         timeout=STEP_WITHIN_S,
     )
     was, landed, steps = out.split("\t")

@@ -14,6 +14,7 @@ from mixhand.executor.ax import (
     read_send_level,
     require_inspector,
     require_mixer,
+    set_delay_param,
     set_track_name,
     step_send_level,
 )
@@ -63,6 +64,11 @@ EQ_HZ_MAX = 19000
 EQ_DB_MIN = -24.0
 EQ_DB_MAX = 24.0
 EQ_GAIN_RAW_AT_0_DB = 240
+DELAY_PERCENT = ("Left Feedback", "Right Feedback", "Crossfeed L->R", "Crossfeed R->L")
+DELAY_NOTE = ("Left Note", "Right Note")
+# A note is given in beats; triplets have no exact decimal, so none is offered.
+DELAY_NOTES = {0.25: "1/16", 0.375: "1/16 dotted", 0.5: "1/8", 0.75: "1/8 dotted", 1: "1/4", 1.5: "1/4 dotted", 2: "1/2", 3: "1/2 dotted"}
+DELAY_STEPS = 110
 
 
 def track_index(logic: LogicPro, track: str) -> int:
@@ -263,6 +269,8 @@ def _move(
 
 
 def set_plugin_param(logic: LogicPro, track: str, plugin: str, param: str, value: float) -> ActionResult:
+    if plugin == "Stereo Delay":
+        return _set_delay_param(logic, track, param, value)
     command, params, wanted, unit = _plugin_param(plugin, param, value)
     project = logic.require_project()
     index, entry = _track(logic, track)
@@ -330,9 +338,71 @@ def _plugin_param(plugin: str, param: str, value: float) -> tuple[str, dict, str
         params = {"band": band, "parameter": kind, "value": EQ_GAIN_RAW_AT_0_DB + tenths, "unit": "raw_ax_value"}
         return "set_eq_band_verified", params, shown, "dB"
     raise ExecutorError(
-        f"param not mapped: {plugin} {param}; Mixhand sets only Compressor Threshold "
-        f"and Channel EQ {', '.join(EQ_BANDS)} Frequency and Gain"
+        f"param not mapped: {plugin} {param}; Mixhand sets only Compressor Threshold, "
+        f"Channel EQ {', '.join(EQ_BANDS)} Frequency and Gain, and Stereo Delay {', '.join([*DELAY_PERCENT, *DELAY_NOTE])}"
     )
+
+
+def _set_delay_param(logic: LogicPro, track: str, param: str, value: float) -> ActionResult:
+    label, wanted, target, unit = _delay_param(param, value)
+    logic.require_project()
+    index = track_index(logic, track)
+    found = [s for s in inserts(logic, index, track) if s["name"] == SLOT_LABEL["Stereo Delay"]]
+    if len(found) != 1:
+        raise ExecutorError(f"{track!r} has {len(found)} Stereo Delay plugins, not one")
+    log("set_plugin_param.start", track=track, plugin="Stereo Delay", param=param, requested=value, slot=found[0]["insert"])
+    try:
+        was, shown, steps = set_delay_param(track, label, wanted, target, DELAY_STEPS)
+    except ExecutorError as e:
+        log("set_plugin_param.refused", track=track, plugin="Stereo Delay", param=param, requested=value, error=str(e))
+        raise ExecutorError(
+            f"{e}; if that came before the write, nothing changed, and if after it, {track}'s Stereo Delay {param} may have "
+            "moved and undo does not restore it: check it in the plugin"
+        ) from e
+    try:
+        logic.require_project()
+    except ExecutorError as e:
+        log("set_plugin_param.refused", track=track, plugin="Stereo Delay", param=param, requested=value, was=was, shown=shown, steps=steps, error=str(e))
+        moved = f"moved from {was} to {shown}" if steps else f"already read {shown}"
+        raise ExecutorError(f"{e}; a Stereo Delay {param} on {track} {moved}, in whichever project was in front") from e
+    confirmed = shown == wanted
+    log(
+        "set_plugin_param.done",
+        track=track,
+        plugin="Stereo Delay",
+        param=param,
+        requested=value,
+        was=was,
+        shown=shown,
+        steps=steps,
+        verified=confirmed,
+    )
+    if not confirmed:
+        raise ExecutorError(
+            f"{track}'s Stereo Delay {param} reads {shown!r}, not {wanted!r}, and read {was!r} before; "
+            "check it in the plugin, undo does not restore it"
+        )
+    if steps == 0:
+        return ActionResult(ok=True, detail=f"{track}'s Stereo Delay {param} is already {shown}", verified=True)
+    return ActionResult(
+        ok=True,
+        detail=f"Set {track}'s Stereo Delay {param} to {shown} (asked {value:g} {unit}, was {was})",
+        verified=True,
+    )
+
+
+def _delay_param(param: str, value: float) -> tuple[str, str, str, str]:
+    if param in DELAY_PERCENT:
+        if value != round(value) or not 0 <= value <= 100:
+            raise ExecutorError(f"Stereo Delay {param} is a whole percent from 0 to 100, not {value:g}")
+        percent = round(value)
+        return f"{param}:", f"{percent} %", str(percent), "%"
+    if param in DELAY_NOTE:
+        if value not in DELAY_NOTES:
+            beats = ", ".join(f"{b:g} ({n})" for b, n in DELAY_NOTES.items())
+            raise ExecutorError(f"Stereo Delay {param} is a note length in beats, one of {beats}, not {value:g}")
+        return f"{param}:", DELAY_NOTES[value], "", "beats"
+    raise ExecutorError(f"param not mapped: Stereo Delay {param}; Mixhand sets only its {', '.join([*DELAY_PERCENT, *DELAY_NOTE])}")
 
 
 def _left_as(payload: dict, track: str, plugin: str, param: str) -> str:

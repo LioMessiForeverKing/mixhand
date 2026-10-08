@@ -194,6 +194,26 @@ Keep your hands off Logic while it runs, and keep the screen awake (`caffeinate 
   - 2 to 3.5 s a write. Logic reported no front project for a while after the Compressor's undo,
     as it does after an aux's.
 
+- Stereo Delay is written by Mixhand itself (`SET_DELAY_PARAM` in `ax.py`): LogicProMCP 3.16.0 lists
+  it in `StockPluginCatalog.swift` with no write support, and its README says unmapped params fail
+  closed. Its 12 factory settings have evocative names and none is a ping-pong, so presets were not
+  used. Measured on 12.3.1:
+  - The slot's `open` button opens a window titled with the track's name. Its Editor view has
+    unlabelled sliders; only the Controls view labels each row (`Crossfeed L->R:`, `Left Note:`).
+    The View menu never appears in AX, so Mixhand opens it with `AXShowMenu` and picks Controls,
+    its first item, with Down and Return, then checks the button reads `Controls`. A fresh plugin
+    opens in Editor view. The window is closed again only if Mixhand opened it.
+  - Feedback and crossfeed are 0..100 sliders whose raw value is the percent. Setting the value
+    moves one step toward it, so Mixhand steps until Logic's text reads the target: 0 → 60 % took
+    4.3 s. A note is picked from the row's pop-up, whose menu is its own child: 5.5 s. Notes set
+    the time only while Beat Sync is on, which it is on a fresh Stereo Delay; Mixhand refuses
+    otherwise. A write that changes nothing takes 2.4 s.
+  - No write adds an undo step, the same as the LogicProMCP routes.
+  - `test_set_each_stereo_delay_row_then_undo_the_aux` creates `Mixhand Delay`, writes ten values
+    across the six rows twice each (the second must change nothing) and undoes the aux by title;
+    10 of 10 sweeps passed, about 90 s each. In one run LogicProMCP's `undo` answered `sent: true`
+    while Logic's Redo stayed `Can’t Redo`; the test stopped on the title check, and Edit › Undo
+    from the menu then worked at once.
 - LogicProMCP speaks volume as a 0..1 contract, never dB. `mixhand/executor/fader.py` holds
   Logic's dB at each of the fader's 234 raw positions, read off the fader's AX value text on
   12.3.1, and mirrors LogicProMCP's contract curve. Re-measure both if either version changes.
